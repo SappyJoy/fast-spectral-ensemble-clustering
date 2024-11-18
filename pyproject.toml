@@ -1,0 +1,29 @@
+[project]
+name = "fast-spectral-ensemble-clustering"
+version = "0.1.0"
+description = "Add your description here"
+authors = [
+    { name = "Stepan Ponomarev", email = "stponomarevw@gmail.com" }
+]
+dependencies = [
+    "numpy>=2.1.3",
+    "scipy>=1.14.1",
+    "scikit-learn>=1.5.2",
+    "networkx>=3.4.2",
+]
+readme = "README.md"
+requires-python = ">= 3.12"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.rye]
+managed = true
+dev-dependencies = []
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fast_spectral_ensemble_clustering"]
