@@ -204,6 +204,7 @@ packaging==24.2
     # via matplotlib
     # via nbconvert
     # via optuna
+    # via plotly
 pandas==2.2.3
     # via seaborn
 pandocfilters==1.5.1
@@ -216,6 +217,8 @@ pillow==11.0.0
     # via matplotlib
 platformdirs==4.3.6
     # via jupyter-core
+plotly==5.24.1
+    # via fast-spectral-ensemble-clustering
 prometheus-client==0.21.0
     # via jupyter-server
 prompt-toolkit==3.0.48
@@ -293,6 +296,8 @@ sqlalchemy==2.0.36
     # via optuna
 stack-data==0.6.3
     # via ipython
+tenacity==9.0.0
+    # via plotly
 terminado==0.18.1
     # via jupyter-server
     # via jupyter-server-terminals
