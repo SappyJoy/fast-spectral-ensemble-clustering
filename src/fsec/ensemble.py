@@ -3,6 +3,7 @@ from sklearn.cluster import KMeans
 from joblib import Parallel, delayed
 from scipy.sparse import coo_matrix, diags
 from scipy.sparse.linalg import eigsh
+from scipy.linalg import eigh
 
 def generate_base_clusterings(U, num_clusters_list, n_init=10, n_jobs=-1):
     """
@@ -73,19 +74,33 @@ def consensus_clustering(H, n_clusters):
     D_c_inv = diags(1.0 / D_c)
     
     # Compute the Laplacian for the simplified graph
-    L_tilde = H.T.dot(diags(1.0 / H.sum(axis=1).A.flatten())).dot(H)
+    D_r_inv = diags(1.0 / H.sum(axis=1).A.flatten())
+    L_tilde = H.T.dot(D_r_inv).dot(H)
     
     # Compute the eigenvectors
     n_components = n_clusters
-    vals, vecs = eigsh(L_tilde, k=n_components, which='LA')  # 'LA' for largest algebraic
+    N = L_tilde.shape[0]
+    
+    if n_components >= N:
+        # When k >= N, use dense eigenvalue solver
+        L_tilde_dense = L_tilde.toarray()
+        vals, vecs = eigh(L_tilde_dense)
+        
+        # Since eigh returns eigenvalues in ascending order, reverse them
+        idx = np.argsort(-vals)
+        vals = vals[idx]
+        vecs = vecs[:, idx]
+        
+        # Select the top n_components eigenvectors
+        vecs = vecs[:, :n_components]
+    else:
+        # Use eigsh for sparse matrices
+        vals, vecs = eigsh(L_tilde, k=n_components, which='LA')
     
     # Map back to the original samples
-    # According to the relationship in the paper:
-    # f = H * D_c^{-1} * u
     f = H.dot(D_c_inv).dot(vecs)
     
     # Use the eigenvectors for clustering
-    kmeans = KMeans(n_clusters=n_clusters)
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42)
     final_labels = kmeans.fit_predict(f)
     return final_labels
-

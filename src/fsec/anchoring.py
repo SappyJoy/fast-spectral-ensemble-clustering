@@ -6,7 +6,16 @@ from sklearn.neighbors import NearestNeighbors
 def recursive_bkmeans(data, num_anchors, current_depth=0, max_depth=None, use_mini_batch=False):
     if max_depth is None:
         max_depth = int(np.ceil(np.log2(num_anchors)))
-    if num_anchors == 1 or len(data) == 0:
+    
+    # Base cases
+    if num_anchors == 1 or len(data) <= 1 or current_depth >= max_depth:
+        if len(data) == 0:
+            return []
+        else:
+            return [np.mean(data, axis=0)]
+    
+    # Check if data has at least 2 samples
+    if len(data) < 2:
         return [np.mean(data, axis=0)]
     
     # Choose clustering method

@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import seaborn as sns
+import numpy as np
 
 def plot_data(X, y, title="Data Distribution", xlabel="Component 1", ylabel="Component 2"):
     plt.figure(figsize=(8, 6))
