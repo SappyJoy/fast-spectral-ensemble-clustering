@@ -11,26 +11,66 @@ import torch
 from data.loaders import get_dataset
 import optuna
 from optuna.integration import PyTorchLightningPruningCallback
+from sklearn.exceptions import ConvergenceWarning
+import json
+import random
+import numpy as np
+import warnings
+import optuna.visualization as vis
+import matplotlib.pyplot as plt
+
+def set_seed(seed=42):
+    """Set random seeds for reproducibility."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    lp.seed_everything(seed)
 
 def objective(trial, dataset_name):
-    # Suggest hyperparameters
+    mlflow.end_run()
+
+    # Suppress specific warnings within the objective
+    warnings.filterwarnings("ignore", category=UserWarning, message="Choices for a categorical distribution should be a tuple")
+    warnings.filterwarnings("ignore", category=ConvergenceWarning)  # From sklearn if needed
+    warnings.filterwarnings("ignore", category=FutureWarning)  # Other future warnings
+
+
+    # Set seed for reproducibility
+    set_seed(trial.number + 42)  # Unique seed per trial
+
+    # Load dataset to determine num_samples
+    X, y = get_dataset(dataset_name)
+    num_samples = X.shape[0]
+
+    # Suggest hyperparameters with dynamic constraints
+    # 'n_components' is suggested first to set the lower bound for 'num_anchors'
+    n_components = trial.suggest_int('n_components', 2, 10)
+    num_anchors = trial.suggest_int('num_anchors', n_components + 1, min(100, num_samples))
+    K = trial.suggest_int('K', 3, 10)
+    K_prime = trial.suggest_int('K_prime', K + 1, min(100, num_samples))  # Ensure K_prime > K
+    num_clusters_list = trial.suggest_categorical('num_clusters_list', [(2,3), (3,4), (4,5)])  # Use tuples
+    final_n_clusters = trial.suggest_int('final_n_clusters', 2, 10)
+
+
     params = {
-        'num_anchors': trial.suggest_int('num_anchors', 30, 100),
-        'K_prime': trial.suggest_int('K_prime', 30, 100),
-        'K': trial.suggest_int('K', 3, 10),
-        'n_components': trial.suggest_int('n_components', 2, 10),
-        'num_clusters_list': trial.suggest_categorical('num_clusters_list', [[2,3], [3,4], [4,5]]),
-        'final_n_clusters': trial.suggest_int('final_n_clusters', 2, 10),
+        'num_anchors': num_anchors,
+        'K_prime': K_prime,
+        'K': K,
+        'n_components': n_components,
+        'num_clusters_list': num_clusters_list,
+        'final_n_clusters': final_n_clusters,
         'n_jobs': -1  # Fixed as per your configuration
     }
 
     # Initialize DataModule
-    datamodule = FSECDataModule(dataset_name, batch_size=len(get_dataset(dataset_name)[0]))
+    datamodule = FSECDataModule(dataset_name, batch_size=len(X))
     datamodule.setup()
 
-    # Initialize MLflow Logger
+    # Initialize MLflow Logger for Tuning
     logger = MLFlowLogger(
-        experiment_name='FSEC_Optuna_Experiments',
+        experiment_name=f'FSEC_Optuna_{dataset_name}',
+        run_name=f"{dataset_name}_trial_{trial.number}",
         tracking_uri='http://localhost:5000'  # Replace with your MLflow server URI if different
     )
 
@@ -45,10 +85,15 @@ def objective(trial, dataset_name):
         accelerator='auto',  # Utilize GPU if available
         devices=1 if torch.cuda.is_available() else None,
         callbacks=[PyTorchLightningPruningCallback(trial, monitor="NMI")],
+        log_every_n_steps=1,  # Adjust logging frequency
+        deterministic=True,  # Ensure deterministic behavior
+        # log_level='WARNING',  # Reduce verbosity
     )
 
+    mlflow.end_run()
+
     # Start MLflow run for this trial
-    with mlflow.start_run(run_name=f"{dataset_name}_trial"):
+    with mlflow.start_run(run_name=f"{dataset_name}_trial_{trial.number}"):
         # Log hyperparameters
         mlflow.log_params(params)
 
@@ -57,9 +102,6 @@ def objective(trial, dataset_name):
 
         # Retrieve cluster labels
         predicted_labels = model.labels_pred
-
-        # Retrieve true labels
-        _, y = get_dataset(dataset_name)
 
         # Compute metrics
         nmi = normalized_mutual_info_score(y, predicted_labels)
@@ -74,7 +116,7 @@ def objective(trial, dataset_name):
         # Optionally, log the model
         # mlflow.sklearn.log_model(model.fsec, "fsec_model")
 
-        print(f"Trial completed for dataset: {dataset_name}")
+        print(f"Trial {trial.number} completed for dataset: {dataset_name}")
         print(f"NMI: {nmi:.4f}, ARI: {ari:.4f}, ACC: {acc:.4f}")
 
         # Report intermediate objective value to Optuna
@@ -84,16 +126,37 @@ def objective(trial, dataset_name):
         if trial.should_prune():
             raise optuna.exceptions.TrialPruned()
 
+    # Generate and log Optuna plots
+    # Note: Plot generation after each trial is not feasible; handle after the study
     return nmi  # Optuna will try to maximize NMI
+
+def save_optuna_plots(study, dataset_name):
+    """Generate and save Optuna optimization plots."""
+    # Optimization History Plot
+    fig1 = vis.plot_optimization_history(study)
+    fig1.write_image("optimization_history.png")
+    
+    # Parameter Importances Plot
+    fig2 = vis.plot_param_importances(study)
+    fig2.write_image("param_importances.png")
+    
+    # Save plots to MLflow
+    mlflow.log_artifact("optimization_history.png")
+    mlflow.log_artifact("param_importances.png")
+    
+    # Optionally, remove the local files after logging
+    import os
+    os.remove("optimization_history.png")
+    os.remove("param_importances.png")
 
 def optimize_hyperparameters(dataset_name, n_trials=50):
     # Define the study
-    study = optuna.create_study(direction='maximize', study_name=f"FSEC_{dataset_name}_study", storage=None)
+    study = optuna.create_study(direction='maximize', study_name=f"FSEC_{dataset_name}_study")
 
     # Optimize the objective function
     study.optimize(lambda trial: objective(trial, dataset_name), n_trials=n_trials)
 
-    print(f"Best trial for {dataset_name}:")
+    print(f"\nBest trial for {dataset_name}:")
     trial = study.best_trial
 
     print(f"  NMI: {trial.value}")
@@ -101,16 +164,25 @@ def optimize_hyperparameters(dataset_name, n_trials=50):
     for key, value in trial.params.items():
         print(f"    {key}: {value}")
 
+    # Generate and log Optuna plots
+    save_optuna_plots(study, dataset_name)
+
     return study.best_trial.params, trial.value
 
 def run_fsec_on_dataset(dataset_name, params, nmi_score):
+    mlflow.end_run()
+
+    # Set seed for reproducibility
+    set_seed(999)  # Fixed seed for final run
+
     # Initialize DataModule
     datamodule = FSECDataModule(dataset_name, batch_size=len(get_dataset(dataset_name)[0]))
     datamodule.setup()
 
-    # Initialize MLflow Logger
+    # Initialize MLflow Logger for Final Run
     logger = MLFlowLogger(
-        experiment_name='FSEC_Final_Experiments',
+        experiment_name=f'FSEC_Final_{dataset_name}',
+        run_name=f"{dataset_name}_final",
         tracking_uri='http://localhost:5000'  # Replace with your MLflow server URI if different
     )
 
@@ -124,9 +196,14 @@ def run_fsec_on_dataset(dataset_name, params, nmi_score):
         enable_checkpointing=False,
         accelerator='auto',
         devices=1 if torch.cuda.is_available() else None,
+        log_every_n_steps=1,  # Adjust logging frequency
+        deterministic=True,  # Ensure deterministic behavior
+        # log_level='WARNING',  # Reduce verbosity
     )
 
-    # Start MLflow run
+    mlflow.end_run()
+
+    # Start MLflow run for final evaluation
     with mlflow.start_run(run_name=f"{dataset_name}_final"):
         # Log parameters
         mlflow.log_params(params)
@@ -163,11 +240,42 @@ def run_fsec_on_dataset(dataset_name, params, nmi_score):
             'acc': acc
         }
 
+def save_study_summary(study, dataset_name):
+    """Save the study summary as a JSON artifact."""
+    summary = {
+        "best_trial": {
+            "value": study.best_trial.value,
+            "params": study.best_trial.params
+        },
+        "trials": []
+    }
+
+    for trial in study.trials:
+        summary["trials"].append({
+            "number": trial.number,
+            "value": trial.value,
+            "params": trial.params,
+            "state": trial.state.name
+        })
+
+    with open("study_summary.json", "w") as f:
+        json.dump(summary, f, indent=4)
+
+    # Log the summary to MLflow
+    mlflow.log_artifact("study_summary.json")
+
+    # Remove the local file
+    import os
+    os.remove("study_summary.json")
+
 if __name__ == "__main__":
+    # Set global seed for overall reproducibility
+    set_seed(123)
+
     datasets = [
         # 'Covertype', # TODO: SVD error
-        'PenDigits',
-        'Letters',
+        # 'PenDigits',
+        # 'Letters',
         'MNIST',
         'USPS',
         'FashionMNIST',
@@ -188,7 +296,6 @@ if __name__ == "__main__":
         results[dataset] = final_metrics
 
     # Optionally, save the results to a file
-    import json
     with open('results.json', 'w') as f:
         json.dump(results, f, indent=4)
     print("\n=== Hyperparameter Optimization and Final Runs Completed ===\n")

@@ -211,6 +211,8 @@ jupyterlab-server==2.27.3
     # via notebook
 jupyterlab-widgets==3.0.13
     # via ipywidgets
+kaleido==0.2.1
+    # via fast-spectral-ensemble-clustering
 kiwisolver==1.4.7
     # via matplotlib
 lightning==2.4.0

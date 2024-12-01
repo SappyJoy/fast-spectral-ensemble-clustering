@@ -7,6 +7,7 @@ from sklearn.datasets import fetch_openml, load_digits, load_iris, load_wine, fe
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from torchvision import datasets, transforms
 from ucimlrepo import fetch_ucirepo
+from sklearn.impute import SimpleImputer
 
 
 def load_covertype():
@@ -86,7 +87,7 @@ def load_cifar10():
 
 def get_dataset(name):
     """
-    Функция для получения выбранного датасета.
+    Function to load the specified dataset.
     """
     loaders = {
         'Covertype': load_covertype,
@@ -101,8 +102,32 @@ def get_dataset(name):
     if name not in loaders:
         raise ValueError(f"Dataset {name} is not supported.")
     X, y = loaders[name]()
-    # Предварительная обработка
+    
+    # Convert to NumPy array if not already
+    if isinstance(X, pd.DataFrame) or isinstance(X, pd.Series):
+        X = X.to_numpy()
+    elif isinstance(X, list):
+        X = np.array(X)
+    
+    # Handle missing values
+    # Replace empty strings with NaN
+    X = np.where(X == '', np.nan, X)
+    
+    # Convert all data to float
+    try:
+        X = X.astype(float)
+    except ValueError as e:
+        print(f"Error converting data to float: {e}")
+        # Optionally, handle specific cases or clean data further
+        # For now, re-raise the exception
+        raise
+    
+    # Impute missing values (if any) using mean strategy
+    # imputer = SimpleImputer(strategy='mean')
+    # X = imputer.fit_transform(X)
+    
+    # Scale the data
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
+    
     return X_scaled, y
-
