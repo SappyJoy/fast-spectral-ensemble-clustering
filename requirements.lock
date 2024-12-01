@@ -100,6 +100,7 @@ frozenlist==1.5.0
     # via aiohttp
     # via aiosignal
 fsspec==2024.10.0
+    # via lightning
     # via pytorch-lightning
     # via torch
 gitdb==4.0.11
@@ -212,7 +213,11 @@ jupyterlab-widgets==3.0.13
     # via ipywidgets
 kiwisolver==1.4.7
     # via matplotlib
+lightning==2.4.0
+    # via fast-spectral-ensemble-clustering
+    # via optuna-integration
 lightning-utilities==0.11.9
+    # via lightning
     # via pytorch-lightning
     # via torchmetrics
 mako==1.3.6
@@ -312,6 +317,9 @@ opentelemetry-semantic-conventions==0.49b2
     # via opentelemetry-sdk
 optuna==4.1.0
     # via fast-spectral-ensemble-clustering
+    # via optuna-integration
+optuna-integration==4.1.0
+    # via fast-spectral-ensemble-clustering
 overrides==7.7.0
     # via jupyter-server
 packaging==24.2
@@ -320,6 +328,7 @@ packaging==24.2
     # via jupyter-server
     # via jupyterlab
     # via jupyterlab-server
+    # via lightning
     # via lightning-utilities
     # via matplotlib
     # via mlflow-skinny
@@ -387,10 +396,12 @@ python-json-logger==2.0.7
     # via jupyter-events
 pytorch-lightning==2.4.0
     # via fast-spectral-ensemble-clustering
+    # via lightning
 pytz==2024.2
     # via pandas
 pyyaml==6.0.2
     # via jupyter-events
+    # via lightning
     # via mlflow-skinny
     # via optuna
     # via pytorch-lightning
@@ -465,10 +476,12 @@ threadpoolctl==3.5.0
 tinycss2==1.4.0
     # via nbconvert
 torch==2.5.1
+    # via lightning
     # via pytorch-lightning
     # via torchmetrics
     # via torchvision
 torchmetrics==1.6.0
+    # via lightning
     # via pytorch-lightning
 torchvision==0.20.1
     # via fast-spectral-ensemble-clustering
@@ -480,6 +493,7 @@ tornado==6.4.1
     # via notebook
     # via terminado
 tqdm==4.67.0
+    # via lightning
     # via optuna
     # via pytorch-lightning
 traitlets==5.14.3
@@ -504,6 +518,7 @@ types-python-dateutil==2.9.0.20241003
 typing-extensions==4.12.2
     # via alembic
     # via graphene
+    # via lightning
     # via lightning-utilities
     # via opentelemetry-sdk
     # via pytorch-lightning
