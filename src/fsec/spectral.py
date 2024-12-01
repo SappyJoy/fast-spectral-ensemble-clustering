@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.sparse.linalg import svds
+from sklearn.decomposition import TruncatedSVD
 
 def compute_svd(W, n_components):
     """
@@ -38,4 +39,35 @@ def compute_svd(W, n_components):
     U_normalized = U / (np.linalg.norm(U, axis=1, keepdims=True) + 1e-8)
     
     return U_normalized
+
+# This implementation works with cover type dataset
+# def compute_svd(W, n_components):
+#     """
+#     Computes the top n_components singular vectors of Z = W * Lambda^{-1/2}.
+#
+#     Parameters:
+#     - W: scipy.sparse.csr_matrix of shape (N, p), similarity matrix
+#     - n_components: Number of singular vectors to compute
+#
+#     Returns:
+#     - U_normalized: numpy.ndarray of shape (N, n_components), left singular vectors normalized
+#     """
+#     # Compute the degree matrix Lambda for anchors
+#     Lambda = np.array(W.sum(axis=0)).flatten()
+#
+#     # Compute Lambda^{-1/2}
+#     Lambda_inv_sqrt = 1.0 / np.sqrt(Lambda + 1e-8)  # Add epsilon to prevent division by zero
+#
+#     # Compute Z = W * Lambda^{-1/2}
+#     Z = W.multiply(Lambda_inv_sqrt)
+#
+#     # Use TruncatedSVD instead of svds for better convergence
+#     svd = TruncatedSVD(n_components=n_components, n_iter=100, tol=1e-4, random_state=42)
+#     U = svd.fit_transform(Z)
+#
+#     # Normalize U
+#     U_normalized = U / (np.linalg.norm(U, axis=1, keepdims=True) + 1e-8)
+#
+#     return U_normalized
+
 

@@ -8,3 +8,9 @@ wheels/
 
 # venv
 .venv
+
+datasets/
+data/raw/
+data/processed/
+
+mlruns/
