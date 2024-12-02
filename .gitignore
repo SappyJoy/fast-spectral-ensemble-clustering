@@ -14,3 +14,7 @@ data/raw/
 data/processed/
 
 mlruns/
+mlartifacts/
+optimization_history.png
+param_importances.png
+results.json

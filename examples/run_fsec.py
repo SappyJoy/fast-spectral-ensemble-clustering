@@ -30,8 +30,6 @@ def set_seed(seed=42):
     lp.seed_everything(seed)
 
 def objective(trial, dataset_name):
-    mlflow.end_run()
-
     # Suppress specific warnings within the objective
     warnings.filterwarnings("ignore", category=UserWarning, message="Choices for a categorical distribution should be a tuple")
     warnings.filterwarnings("ignore", category=ConvergenceWarning)  # From sklearn if needed
@@ -89,83 +87,43 @@ def objective(trial, dataset_name):
         callbacks=[PyTorchLightningPruningCallback(trial, monitor="NMI")],
         log_every_n_steps=1,  # Adjust logging frequency
         deterministic=True,  # Ensure deterministic behavior
-        # log_level='WARNING',  # Reduce verbosity
         enable_progress_bar=False,
         enable_model_summary=False
     )
 
-    mlflow.end_run()
+    # Log hyperparameters
+    logger.log_hyperparams(params)
 
-    # Start MLflow run for this trial
-    with mlflow.start_run(run_name=f"{dataset_name}_trial_{trial.number}"):
-        # Log hyperparameters
-        mlflow.log_params(params)
+    # Fit the model (perform clustering)
+    trainer.fit(model, datamodule=datamodule)
 
-        # Fit the model (perform clustering)
-        trainer.fit(model, datamodule=datamodule)
+    # Retrieve cluster labels
+    predicted_labels = model.labels_pred
 
-        # Retrieve cluster labels
-        predicted_labels = model.labels_pred
+    # Compute metrics
+    nmi = normalized_mutual_info_score(y, predicted_labels)
+    ari = adjusted_rand_score(y, predicted_labels)
+    acc = clustering_accuracy(y, predicted_labels)
 
-        # Compute metrics
-        nmi = normalized_mutual_info_score(y, predicted_labels)
-        ari = adjusted_rand_score(y, predicted_labels)
-        acc = clustering_accuracy(y, predicted_labels)
+    # Log metrics
+    logger.log_metrics({"NMI": nmi, "ARI": ari, "ACC": acc})
 
-        # Log metrics
-        mlflow.log_metric("NMI", nmi)
-        mlflow.log_metric("ARI", ari)
-        mlflow.log_metric("ACC", acc)
+    # Optionally, log the model
+    # mlflow.sklearn.log_model(model.fsec, "fsec_model")
 
-        # Optionally, log the model
-        # mlflow.sklearn.log_model(model.fsec, "fsec_model")
+    print(f"Trial {trial.number} completed for dataset: {dataset_name}")
+    print(f"NMI: {nmi:.4f}, ARI: {ari:.4f}, ACC: {acc:.4f}")
 
-        print(f"Trial {trial.number} completed for dataset: {dataset_name}")
-        print(f"NMI: {nmi:.4f}, ARI: {ari:.4f}, ACC: {acc:.4f}")
+    # Report intermediate objective value to Optuna
+    trial.report(nmi, step=0)
 
-        # Report intermediate objective value to Optuna
-        trial.report(nmi, step=0)
+    # Handle pruning based on intermediate value
+    if trial.should_prune():
+        raise optuna.exceptions.TrialPruned()
 
-        # Handle pruning based on intermediate value
-        if trial.should_prune():
-            raise optuna.exceptions.TrialPruned()
-
-    # Generate and log Optuna plots
-    # Note: Plot generation after each trial is not feasible; handle after the study
     return nmi  # Optuna will try to maximize NMI
 
-def save_optuna_plots(study, dataset_name):
-    """Generate and save Optuna optimization plots."""
-    try:
-        # Optimization History Plot
-        fig1 = vis.plot_optimization_history(study)
-        fig1.write_image("optimization_history.png")
-        
-        # Parameter Importances Plot
-        fig2 = vis.plot_param_importances(study)
-        fig2.write_image("param_importances.png")
-        
-        # Save plots to MLflow
-        mlflow.log_artifact("optimization_history.png")
-        mlflow.log_artifact("param_importances.png")
-        
-        # Optionally, remove the local files after logging
-        os.remove("optimization_history.png")
-        os.remove("param_importances.png")
-        
-        print(f"Optuna plots for {dataset_name} have been logged to MLflow Tuning Experiment.")
-    
-    except Exception as e:
-        # Handle any exceptions during plot generation or logging
-        error_message = f"Failed to generate or log Optuna plots for dataset {dataset_name} with error: {e}"
-        traceback_str = traceback.format_exc()
-        mlflow.log_param("plot_error", error_message)
-        mlflow.log_text(traceback_str, "plot_error_traceback.txt")
-        
-        print(error_message)
-        print(traceback_str)
-
-def save_optuna_plots_final(study, dataset_name):
+def save_optuna_plots_final(study, dataset_name, logger):
     """
     Generate Optuna optimization plots and log them as MLflow artifacts in the FSEC_Final_{Dataset} experiment.
     """
@@ -188,12 +146,10 @@ def save_optuna_plots_final(study, dataset_name):
         fig4.write_image("parallel_coordinate_plot_final.png")
         
         # Log plots as artifacts
-        mlflow.log_artifact("optimization_history_final.png")
-        mlflow.log_artifact("param_importances_final.png")
-        
-        # Optionally, log additional plots
-        mlflow.log_artifact("contour_plot_final.png")
-        mlflow.log_artifact("parallel_coordinate_plot_final.png")
+        logger.experiment.log_artifact(logger.run_id, "optimization_history_final.png")
+        logger.experiment.log_artifact(logger.run_id, "param_importances_final.png")
+        logger.experiment.log_artifact(logger.run_id, "contour_plot_final.png")
+        logger.experiment.log_artifact(logger.run_id, "parallel_coordinate_plot_final.png")
         
         # Remove local plot files to keep the workspace clean
         os.remove("optimization_history_final.png")
@@ -228,14 +184,9 @@ def optimize_hyperparameters(dataset_name, n_trials=50):
     for key, value in trial.params.items():
         print(f"    {key}: {value}")
 
-    # Generate and log Optuna plots
-    save_optuna_plots(study, dataset_name)
-
     return study.best_trial.params, trial.value, study
 
 def run_fsec_on_dataset(dataset_name, params, nmi_score, study):
-    mlflow.end_run()
-
     # Set seed for reproducibility
     set_seed(999)  # Fixed seed for final run
 
@@ -262,51 +213,42 @@ def run_fsec_on_dataset(dataset_name, params, nmi_score, study):
         devices=1 if torch.cuda.is_available() else None,
         log_every_n_steps=1,  # Adjust logging frequency
         deterministic=True,  # Ensure deterministic behavior
-        # log_level='WARNING',  # Reduce verbosity
         enable_progress_bar=False,
         enable_model_summary=False,
     )
 
-    mlflow.end_run()
+    # Log parameters
+    logger.log_hyperparams(params)
 
-    # Start MLflow run for final evaluation
-    with mlflow.start_run(run_name=f"{dataset_name}_final"):
-        # Log parameters
-        mlflow.log_params(params)
+    # Fit the model (perform clustering)
+    trainer.fit(model, datamodule=datamodule)
 
-        # Fit the model (perform clustering)
-        trainer.fit(model, datamodule=datamodule)
+    # Retrieve cluster labels
+    predicted_labels = model.labels_pred
 
-        # Retrieve cluster labels
-        predicted_labels = model.labels_pred
+    # Retrieve true labels
+    _, y = get_dataset(dataset_name)
 
-        # Retrieve true labels
-        _, y = get_dataset(dataset_name)
+    # Compute metrics
+    nmi = normalized_mutual_info_score(y, predicted_labels)
+    ari = adjusted_rand_score(y, predicted_labels)
+    acc = clustering_accuracy(y, predicted_labels)
 
-        # Compute metrics
-        nmi = normalized_mutual_info_score(y, predicted_labels)
-        ari = adjusted_rand_score(y, predicted_labels)
-        acc = clustering_accuracy(y, predicted_labels)
+    # Log metrics
+    logger.log_metrics({"NMI": nmi, "ARI": ari, "ACC": acc})
 
-        # Log metrics
-        mlflow.log_metric("NMI", nmi)
-        mlflow.log_metric("ARI", ari)
-        mlflow.log_metric("ACC", acc)
 
-        # Optionally, log the model
-        # mlflow.sklearn.log_model(model.fsec, "fsec_model")
+    print(f"Final run for dataset: {dataset_name}")
+    print(f"NMI: {nmi:.4f}, ARI: {ari:.4f}, ACC: {acc:.4f}")
 
-        print(f"Final run for dataset: {dataset_name}")
-        print(f"NMI: {nmi:.4f}, ARI: {ari:.4f}, ACC: {acc:.4f}")
+    save_optuna_plots_final(study, dataset_name, logger)
 
-        save_optuna_plots_final(study, dataset_name)
-
-        return {
-            'dataset': dataset_name,
-            'nmi': nmi,
-            'ari': ari,
-            'acc': acc
-        }
+    return {
+        'dataset': dataset_name,
+        'nmi': nmi,
+        'ari': ari,
+        'acc': acc
+    }
 
 def save_study_summary(study, dataset_name):
     """Save the study summary as a JSON artifact."""
