@@ -1,4 +1,6 @@
 # examples/run_fsec.py
+import os
+import traceback
 import lightning.pytorch as lp
 from lightning.pytorch import Trainer
 from lightning.pytorch.loggers import MLFlowLogger
@@ -88,6 +90,8 @@ def objective(trial, dataset_name):
         log_every_n_steps=1,  # Adjust logging frequency
         deterministic=True,  # Ensure deterministic behavior
         # log_level='WARNING',  # Reduce verbosity
+        enable_progress_bar=False,
+        enable_model_summary=False
     )
 
     mlflow.end_run()
@@ -132,22 +136,82 @@ def objective(trial, dataset_name):
 
 def save_optuna_plots(study, dataset_name):
     """Generate and save Optuna optimization plots."""
-    # Optimization History Plot
-    fig1 = vis.plot_optimization_history(study)
-    fig1.write_image("optimization_history.png")
+    try:
+        # Optimization History Plot
+        fig1 = vis.plot_optimization_history(study)
+        fig1.write_image("optimization_history.png")
+        
+        # Parameter Importances Plot
+        fig2 = vis.plot_param_importances(study)
+        fig2.write_image("param_importances.png")
+        
+        # Save plots to MLflow
+        mlflow.log_artifact("optimization_history.png")
+        mlflow.log_artifact("param_importances.png")
+        
+        # Optionally, remove the local files after logging
+        os.remove("optimization_history.png")
+        os.remove("param_importances.png")
+        
+        print(f"Optuna plots for {dataset_name} have been logged to MLflow Tuning Experiment.")
     
-    # Parameter Importances Plot
-    fig2 = vis.plot_param_importances(study)
-    fig2.write_image("param_importances.png")
+    except Exception as e:
+        # Handle any exceptions during plot generation or logging
+        error_message = f"Failed to generate or log Optuna plots for dataset {dataset_name} with error: {e}"
+        traceback_str = traceback.format_exc()
+        mlflow.log_param("plot_error", error_message)
+        mlflow.log_text(traceback_str, "plot_error_traceback.txt")
+        
+        print(error_message)
+        print(traceback_str)
+
+def save_optuna_plots_final(study, dataset_name):
+    """
+    Generate Optuna optimization plots and log them as MLflow artifacts in the FSEC_Final_{Dataset} experiment.
+    """
+    try:
+        # Optimization History Plot
+        fig1 = vis.plot_optimization_history(study)
+        fig1.write_image("optimization_history_final.png")
+        
+        # Parameter Importances Plot
+        fig2 = vis.plot_param_importances(study)
+        fig2.write_image("param_importances_final.png")
+        
+        # Optionally, add more plots if desired
+        # Contour Plot
+        fig3 = vis.plot_contour(study)
+        fig3.write_image("contour_plot_final.png")
+        
+        # Parallel Coordinate Plot
+        fig4 = vis.plot_parallel_coordinate(study)
+        fig4.write_image("parallel_coordinate_plot_final.png")
+        
+        # Log plots as artifacts
+        mlflow.log_artifact("optimization_history_final.png")
+        mlflow.log_artifact("param_importances_final.png")
+        
+        # Optionally, log additional plots
+        mlflow.log_artifact("contour_plot_final.png")
+        mlflow.log_artifact("parallel_coordinate_plot_final.png")
+        
+        # Remove local plot files to keep the workspace clean
+        os.remove("optimization_history_final.png")
+        os.remove("param_importances_final.png")
+        os.remove("contour_plot_final.png")
+        os.remove("parallel_coordinate_plot_final.png")
+        
+        print(f"Optuna plots for {dataset_name} have been logged to MLflow Final Experiment.")
     
-    # Save plots to MLflow
-    mlflow.log_artifact("optimization_history.png")
-    mlflow.log_artifact("param_importances.png")
-    
-    # Optionally, remove the local files after logging
-    import os
-    os.remove("optimization_history.png")
-    os.remove("param_importances.png")
+    except Exception as e:
+        # Handle any exceptions during plot generation or logging
+        error_message = f"Failed to generate or log Optuna plots for dataset {dataset_name} with error: {e}"
+        traceback_str = traceback.format_exc()
+        mlflow.log_param("plot_error", error_message)
+        mlflow.log_text(traceback_str, "plot_error_traceback.txt")
+        
+        print(error_message)
+        print(traceback_str)
 
 def optimize_hyperparameters(dataset_name, n_trials=50):
     # Define the study
@@ -167,9 +231,9 @@ def optimize_hyperparameters(dataset_name, n_trials=50):
     # Generate and log Optuna plots
     save_optuna_plots(study, dataset_name)
 
-    return study.best_trial.params, trial.value
+    return study.best_trial.params, trial.value, study
 
-def run_fsec_on_dataset(dataset_name, params, nmi_score):
+def run_fsec_on_dataset(dataset_name, params, nmi_score, study):
     mlflow.end_run()
 
     # Set seed for reproducibility
@@ -199,6 +263,8 @@ def run_fsec_on_dataset(dataset_name, params, nmi_score):
         log_every_n_steps=1,  # Adjust logging frequency
         deterministic=True,  # Ensure deterministic behavior
         # log_level='WARNING',  # Reduce verbosity
+        enable_progress_bar=False,
+        enable_model_summary=False,
     )
 
     mlflow.end_run()
@@ -232,6 +298,8 @@ def run_fsec_on_dataset(dataset_name, params, nmi_score):
 
         print(f"Final run for dataset: {dataset_name}")
         print(f"NMI: {nmi:.4f}, ARI: {ari:.4f}, ACC: {acc:.4f}")
+
+        save_optuna_plots_final(study, dataset_name)
 
         return {
             'dataset': dataset_name,
@@ -274,8 +342,8 @@ if __name__ == "__main__":
 
     datasets = [
         # 'Covertype', # TODO: SVD error
-        # 'PenDigits',
-        # 'Letters',
+        'PenDigits',
+        'Letters',
         'MNIST',
         'USPS',
         'FashionMNIST',
@@ -288,11 +356,11 @@ if __name__ == "__main__":
 
     for dataset in datasets:
         print(f"\n=== Optimizing hyperparameters for dataset: {dataset} ===\n")
-        best_params, best_nmi = optimize_hyperparameters(dataset, n_trials=n_trials)
+        best_params, best_nmi, study = optimize_hyperparameters(dataset, n_trials=n_trials)
         print(f"\nBest parameters for {dataset}: {best_params} with NMI: {best_nmi:.4f}\n")
 
         print(f"=== Running FSEC with best parameters on dataset: {dataset} ===\n")
-        final_metrics = run_fsec_on_dataset(dataset, best_params, best_nmi)
+        final_metrics = run_fsec_on_dataset(dataset, best_params, best_nmi, study)
         results[dataset] = final_metrics
 
     # Optionally, save the results to a file
