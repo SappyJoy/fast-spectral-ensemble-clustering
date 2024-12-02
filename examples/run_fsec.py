@@ -1,4 +1,3 @@
-# examples/run_fsec.py
 import os
 import traceback
 import lightning.pytorch as lp
@@ -45,12 +44,29 @@ def objective(trial, dataset_name):
 
     # Suggest hyperparameters with dynamic constraints
     # 'n_components' is suggested first to set the lower bound for 'num_anchors'
-    n_components = trial.suggest_int('n_components', 2, 10)
-    num_anchors = trial.suggest_int('num_anchors', n_components + 1, min(100, num_samples))
-    K = trial.suggest_int('K', 3, 10)
-    K_prime = trial.suggest_int('K_prime', K + 1, min(100, num_samples))  # Ensure K_prime > K
-    num_clusters_list = trial.suggest_categorical('num_clusters_list', [(2,3), (3,4), (4,5)])  # Use tuples
-    final_n_clusters = trial.suggest_int('final_n_clusters', 2, 10)
+    n_components = trial.suggest_int('n_components', 2, 100)
+    num_anchors = trial.suggest_int('num_anchors', n_components + 1, min(n_components + 2, num_samples))
+    K = trial.suggest_int('K', 1, n_components)  # Ensure K <= n_components
+    K_prime = trial.suggest_int('K_prime', K + 1, min(num_samples, 100 * K))  # Ensure K_prime > K
+    final_n_clusters = trial.suggest_int('final_n_clusters', 2, 100)
+
+    # Suggest the size of num_clusters_list
+    num_clusters_list_size = trial.suggest_int('num_clusters_list_size', 1, 10)
+
+    # Define the range around final_n_clusters
+    cluster_min = max(2, int(final_n_clusters * 0.9))  # Ensure minimum value is 2
+    cluster_max = final_n_clusters * 1.1
+
+    # Initialize the list
+    num_clusters_list = []
+
+    # Generate each tuple based on the size
+    for i in range(num_clusters_list_size):
+        # Suggest cluster numbers around final_n_clusters
+        cluster_1 = trial.suggest_int(f'num_clusters_list_{i}', cluster_min, cluster_max)
+        
+        # Create a tuple and append to the list
+        num_clusters_list.append(cluster_1)
 
 
     params = {
@@ -58,7 +74,7 @@ def objective(trial, dataset_name):
         'K_prime': K_prime,
         'K': K,
         'n_components': n_components,
-        'num_clusters_list': num_clusters_list,
+        'num_clusters_list': tuple(num_clusters_list),
         'final_n_clusters': final_n_clusters,
         'n_jobs': -1  # Fixed as per your configuration
     }
@@ -286,14 +302,14 @@ if __name__ == "__main__":
         # 'Covertype', # TODO: SVD error
         'PenDigits',
         'Letters',
-        'MNIST',
+        # 'MNIST',
         'USPS',
         'FashionMNIST',
         'CIFAR10',
         # 'KannadaMNIST' # TODO: Need to implement loader
     ]
 
-    n_trials = 50  # Number of Optuna trials per dataset
+    n_trials = 250  # Number of Optuna trials per dataset
     results = {}
 
     for dataset in datasets:
@@ -301,8 +317,33 @@ if __name__ == "__main__":
         best_params, best_nmi, study = optimize_hyperparameters(dataset, n_trials=n_trials)
         print(f"\nBest parameters for {dataset}: {best_params} with NMI: {best_nmi:.4f}\n")
 
+                # Reconstruct num_clusters_list from individual entries
+        num_clusters_list_size = best_params.get('num_clusters_list_size', 1)  # Default to 1 if not found
+        num_clusters_list = []
+        for i in range(num_clusters_list_size):
+            cluster_key = f'num_clusters_list_{i}'
+            cluster_value = best_params.get(cluster_key, 2)  # Default to 2 if not found
+            num_clusters_list.append(cluster_value)
+        
+        num_clusters_list = tuple(num_clusters_list)  # Convert to tuple if required by FSEC
+
+        # Filter out tuning hyperparameters before passing to FSEC
+        fsec_expected_params = {
+            'num_anchors',
+            'K_prime',
+            'K',
+            'n_components',
+            'final_n_clusters',
+            'num_clusters_list',
+            'n_jobs'
+        }
+
+        # Create a new params dictionary containing only expected parameters
+        filtered_params = {k: v for k, v in best_params.items() if k in fsec_expected_params}
+        filtered_params['num_clusters_list'] = num_clusters_list  # Add the reconstructed list
+
         print(f"=== Running FSEC with best parameters on dataset: {dataset} ===\n")
-        final_metrics = run_fsec_on_dataset(dataset, best_params, best_nmi, study)
+        final_metrics = run_fsec_on_dataset(dataset, filtered_params, best_nmi, study)
         results[dataset] = final_metrics
 
     # Optionally, save the results to a file
