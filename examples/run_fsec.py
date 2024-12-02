@@ -39,7 +39,7 @@ def objective(trial, dataset_name):
     set_seed(trial.number + 42)  # Unique seed per trial
 
     # Load dataset to determine num_samples
-    X, y = get_dataset(dataset_name)
+    X, y, final_n_clusters = get_dataset(dataset_name)
     num_samples = X.shape[0]
 
     # Suggest hyperparameters with dynamic constraints
@@ -48,7 +48,7 @@ def objective(trial, dataset_name):
     num_anchors = trial.suggest_int('num_anchors', n_components + 1, min(n_components + 2, num_samples))
     K = trial.suggest_int('K', 1, n_components)  # Ensure K <= n_components
     K_prime = trial.suggest_int('K_prime', K + 1, min(num_samples, 100 * K))  # Ensure K_prime > K
-    final_n_clusters = trial.suggest_int('final_n_clusters', 2, 100)
+    # final_n_clusters = trial.suggest_int('final_n_clusters', 2, 100)
 
     # Suggest the size of num_clusters_list
     num_clusters_list_size = trial.suggest_int('num_clusters_list_size', 1, 10)
@@ -207,7 +207,8 @@ def run_fsec_on_dataset(dataset_name, params, nmi_score, study):
     set_seed(999)  # Fixed seed for final run
 
     # Initialize DataModule
-    datamodule = FSECDataModule(dataset_name, batch_size=len(get_dataset(dataset_name)[0]))
+    X, _, final_n_clusters = get_dataset(dataset_name)
+    datamodule = FSECDataModule(dataset_name, batch_size=len(X))
     datamodule.setup()
 
     # Initialize MLflow Logger for Final Run
@@ -217,6 +218,7 @@ def run_fsec_on_dataset(dataset_name, params, nmi_score, study):
         tracking_uri='http://localhost:5000'  # Replace with your MLflow server URI if different
     )
 
+    params['final_n_clusters'] = final_n_clusters
     # Initialize FSECModule with the best parameters
     model = FSECModule(params)
 
@@ -243,7 +245,7 @@ def run_fsec_on_dataset(dataset_name, params, nmi_score, study):
     predicted_labels = model.labels_pred
 
     # Retrieve true labels
-    _, y = get_dataset(dataset_name)
+    _, y, _ = get_dataset(dataset_name)
 
     # Compute metrics
     nmi = normalized_mutual_info_score(y, predicted_labels)
@@ -309,7 +311,7 @@ if __name__ == "__main__":
         # 'KannadaMNIST' # TODO: Need to implement loader
     ]
 
-    n_trials = 250  # Number of Optuna trials per dataset
+    n_trials = 50  # Number of Optuna trials per dataset
     results = {}
 
     for dataset in datasets:

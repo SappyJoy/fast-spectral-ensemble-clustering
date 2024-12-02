@@ -17,7 +17,7 @@ def load_covertype():
     # Пример загрузки из OpenML
     covertype = fetch_covtype()
     X, y = covertype.data, covertype.target.astype(int)
-    return X, y
+    return X, y, 7
 
 def load_pendigits():
     """
@@ -25,7 +25,7 @@ def load_pendigits():
     """
     pendigits = fetch_openml(name='pendigits', version=1, as_frame=False)
     X, y = pendigits.data, pendigits.target.astype(int)
-    return X, y
+    return X, y, 10
 
 def load_letters():
     """
@@ -36,14 +36,15 @@ def load_letters():
     # Encode string labels to integers
     label_encoder = LabelEncoder()
     y_encoded = label_encoder.fit_transform(y)
-    return X, y_encoded
+    return X, y_encoded, 26
+
 def load_mnist():
     """
     Загрузка датасета MNIST.
     """
     mnist = fetch_openml('mnist_784', version=1, as_frame=False)
     X, y = mnist.data, mnist.target.astype(int)
-    return X, y
+    return X, y, 10
 
 def load_usps():
     """
@@ -54,7 +55,7 @@ def load_usps():
     usps = datasets.USPS(root='./data/raw', train=True, download=True, transform=transform)
     X = usps.data.reshape(usps.data.shape[0], -1)
     y = np.array(usps.targets)
-    return X, y
+    return X, y, 10
 
 def load_fashion_mnist():
     """
@@ -64,7 +65,7 @@ def load_fashion_mnist():
     fashion_mnist = datasets.FashionMNIST(root='./data/raw', train=True, download=True, transform=transform)
     X = fashion_mnist.data.numpy().reshape(fashion_mnist.data.shape[0], -1)
     y = fashion_mnist.targets.numpy()
-    return X, y
+    return X, y, 10
 
 def load_cifar10():
     """
@@ -74,7 +75,7 @@ def load_cifar10():
     cifar10 = datasets.CIFAR10(root='./data/raw', train=True, download=True, transform=transform)
     X = cifar10.data.reshape(cifar10.data.shape[0], -1)
     y = np.array(cifar10.targets)
-    return X, y
+    return X, y, 10
 
 # def load_kannada_mnist():
 #     """
@@ -101,7 +102,7 @@ def get_dataset(name):
     }
     if name not in loaders:
         raise ValueError(f"Dataset {name} is not supported.")
-    X, y = loaders[name]()
+    X, y, class_num = loaders[name]()
     
     # Convert to NumPy array if not already
     if isinstance(X, pd.DataFrame) or isinstance(X, pd.Series):
@@ -130,4 +131,4 @@ def get_dataset(name):
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
     
-    return X_scaled, y
+    return X_scaled, y, class_num

@@ -17,7 +17,7 @@ class FSECDataModule(lp.LightningDataModule):
 
     def setup(self, stage=None):
         # Load data
-        self.X, self.y = get_dataset(self.dataset_name)
+        self.X, self.y, _ = get_dataset(self.dataset_name)
         # Convert to torch tensors
         self.X = torch.tensor(self.X, dtype=torch.float32)
         self.y = torch.tensor(self.y, dtype=torch.long)
