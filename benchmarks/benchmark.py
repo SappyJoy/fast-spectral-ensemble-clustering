@@ -25,6 +25,9 @@ def set_seed(seed=42):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     lp.seed_everything(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
 
 def benchmark_clustering_algorithm(trial, dataset_name, algorithm_class, params=None, hyperparameter_tuning=True, study=None):
     """
@@ -37,20 +40,28 @@ def benchmark_clustering_algorithm(trial, dataset_name, algorithm_class, params=
         warnings.filterwarnings("ignore", category=FutureWarning)
 
         # Set seed for reproducibility
-        if not trial:
-            trial_number = 0
-        else:
+        if trial:
             trial_number = trial.number
+            set_seed(trial_number + 42)  # Unique seed per trial
+        else:
+            trial_number = 'final'
+            set_seed(999)  # Fixed seed for final run
 
-        set_seed(trial_number + 42)  # Unique seed per trial
-
-        # Load dataset to determine num_samples
+        # Load dataset
         X, y, final_n_clusters = get_dataset(dataset_name)
 
-        # Initialize MLflow Logger for Tuning
+        # Determine Experiment Name
+        if hyperparameter_tuning and trial:
+            experiment_name = f'Tuning_{algorithm_class.__name__}_{dataset_name}'
+            run_name = f'{dataset_name}_{algorithm_class.__name__}_Trial_{trial_number}'
+        else:
+            experiment_name = f'Final_{algorithm_class.__name__}_{dataset_name}'
+            run_name = f'{dataset_name}_{algorithm_class.__name__}_Final_Run'
+
+        # Initialize MLflow Logger
         logger = MLFlowLogger(
-            experiment_name=f'{algorithm_class.__name__}_Optuna_{dataset_name}',
-            run_name=f"{dataset_name}_trial_{trial_number}",
+            experiment_name=experiment_name,
+            run_name=run_name,
             tracking_uri='http://localhost:5000'  # Replace with your MLflow server URI if different
         )
 
@@ -58,8 +69,9 @@ def benchmark_clustering_algorithm(trial, dataset_name, algorithm_class, params=
         if algorithm_class == FSECClustering:
             algorithm_instance = FSECClustering(logger, trial, dataset_name, params)
         else:
-            algorithm_instance = algorithm_class()
+            algorithm_instance = algorithm_class(params=params)
 
+        # Log hyperparameters if in tuning mode
         if hyperparameter_tuning and trial:
             logger.log_hyperparams(algorithm_instance.get_params())
 
@@ -71,30 +83,30 @@ def benchmark_clustering_algorithm(trial, dataset_name, algorithm_class, params=
         ari = adjusted_rand_score(y, predicted_labels)
         acc = clustering_accuracy(y, predicted_labels)
 
-        # Log metrics using MLFlowLogger
+        # Log metrics
         logger.log_metrics({"NMI": nmi, "ARI": ari, "ACC": acc})
 
-        print(f"Trial {trial_number} completed for dataset: {dataset_name} using {algorithm_instance.__class__.__name__}")
+        # Print run completion message
+        print(f"Run '{run_name}' completed for dataset: {dataset_name} using {algorithm_instance.__class__.__name__}")
         print(f"NMI: {nmi:.4f}, ARI: {ari:.4f}, ACC: {acc:.4f}")
 
-        # # Generate and log Optuna plots within the current MLflow run
-        # save_optuna_plots(study=None, dataset_name=dataset_name, logger=logger)
+        # Generate and log Optuna plots if in tuning mode
+        if hyperparameter_tuning and study:
+            save_optuna_plots(study, dataset_name, logger)
+        elif study:
+            save_optuna_plots_final(study, dataset_name, logger)
 
+        # Report intermediate objective value to Optuna if in tuning mode
         if hyperparameter_tuning and trial:
             trial.report(nmi, step=0)
             if trial.should_prune():
                 raise optuna.exceptions.TrialPruned()
 
-        # Generate and log Optuna plots if in tuning mode
-        if hyperparameter_tuning and study:
-            save_optuna_plots(study, dataset_name, logger)
-
-
         return nmi  # Optuna will try to maximize NMI
 
     except Exception as e:
         # Log the exception details using MLflowLogger
-        error_message = f"Trial {trial_number if trial else 'Final'} failed for dataset {dataset_name} using {algorithm_instance.__class__.__name__} with error: {e}"
+        error_message = f"Run '{run_name if 'run_name' in locals() else 'Unknown'}' failed for dataset {dataset_name} using {algorithm_class.__name__} with error: {e}"
         traceback_str = traceback.format_exc()
 
         try:
@@ -110,12 +122,20 @@ def benchmark_clustering_algorithm(trial, dataset_name, algorithm_class, params=
 
         # Re-raise the exception to notify failure
         raise
+    finally:
+        if logger is not None:
+            logger.finalize()
 
 
 def save_optuna_plots(study, dataset_name, logger):
     """Generate and log Optuna optimization plots as MLflow artifacts."""
     try:
         if study is not None:
+            completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+            if len(completed_trials) < 2:
+                print(f"Not enough trials to generate parameter importances plot for dataset {dataset_name}. Skipping plot generation.")
+                return
+
             # Generate Optimization History Plot
             fig1 = vis.plot_optimization_history(study)
             fig1.write_image("optimization_history.png")
@@ -144,7 +164,7 @@ def save_optuna_plots(study, dataset_name, logger):
             os.remove("contour_plot.png")
             os.remove("parallel_coordinate_plot.png")
 
-            print(f"Optuna plots for {dataset_name} have been logged to MLflow Tuning Experiment.")
+            print(f"Optuna plots for {dataset_name} have been logged to MLflow.")
         else:
             print("Study object is None. Skipping plot generation.")
 
@@ -158,9 +178,10 @@ def save_optuna_plots(study, dataset_name, logger):
         print(error_message)
         print(traceback_str)
 
+
 def save_optuna_plots_final(study, dataset_name, logger):
     """
-    Generate Optuna optimization plots and log them as MLflow artifacts in the FSEC_Final_{Dataset} experiment.
+    Generate Optuna optimization plots and log them as MLflow artifacts in the Final experiment.
     """
     try:
         if study is not None:
@@ -172,12 +193,11 @@ def save_optuna_plots_final(study, dataset_name, logger):
             fig2 = vis.plot_param_importances(study)
             fig2.write_image("param_importances_final.png")
         
-            # Optionally, add more plots if desired
-            # Contour Plot
+            # Contour Plot (optional)
             fig3 = vis.plot_contour(study)
             fig3.write_image("contour_plot_final.png")
         
-            # Parallel Coordinate Plot
+            # Parallel Coordinate Plot (optional)
             fig4 = vis.plot_parallel_coordinate(study)
             fig4.write_image("parallel_coordinate_plot_final.png")
         
