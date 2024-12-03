@@ -7,12 +7,14 @@ import optuna
 import torch
 from benchmark import benchmark_clustering_algorithm, save_optuna_plots_final
 
-from clustering_algorithms.agglomerative_clustering import AgglomerativeClusteringClustering
+from clustering_algorithms.agglomerative_clustering import \
+    AgglomerativeClusteringClustering
 from clustering_algorithms.dbscan_clustering import DBSCANClustering
 from clustering_algorithms.fsec_clustering import FSECClustering
 from clustering_algorithms.gmm_clustering import GMMClustering
 from clustering_algorithms.kmeans_clustering import KMeansClustering
-from clustering_algorithms.spectral_clustering import SpectralClusteringClustering
+from clustering_algorithms.spectral_clustering import \
+    SpectralClusteringClustering
 from data.loaders import get_dataset
 
 
@@ -108,8 +110,29 @@ def optimize_and_benchmark(dataset_name, algorithm_class, n_trials=50):
     for key, value in trial.params.items():
         print(f"    {key}: {value}")
 
+    # Define fixed parameters based on the algorithm
+    fixed_params = {}
+    if algorithm_class in [KMeansClustering, SpectralClusteringClustering, AgglomerativeClusteringClustering]:
+        fixed_params['n_clusters'] = final_n_clusters
+    elif algorithm_class == GMMClustering:
+        fixed_params['n_components'] = final_n_clusters
+    elif algorithm_class == FSECClustering:
+        # Handle FSEC-specific fixed parameters
+        num_clusters_list_size = trial.params.get('num_clusters_list_size', 1)
+        num_clusters_list = []
+        for i in range(num_clusters_list_size):
+            cluster_key = f'num_clusters_list_{i}'
+            cluster_value = trial.params.get(cluster_key, 2)
+            num_clusters_list.append(cluster_value)
+        fixed_params.update({
+            'num_clusters_list': tuple(num_clusters_list),
+            'final_n_clusters': final_n_clusters,
+            'n_jobs': -1
+        })
+
     # Run final clustering with best parameters
-    best_params = trial.params
+    best_params = {**fixed_params, **trial.params}
+
     if algorithm_class == FSECClustering:
         # For FSEC, reconstruct num_clusters_list from trial params
         num_clusters_list_size = best_params.get('num_clusters_list_size', 1)
@@ -133,10 +156,11 @@ def optimize_and_benchmark(dataset_name, algorithm_class, n_trials=50):
         # Create a new params dictionary containing only expected parameters
         filtered_params = {k: v for k, v in best_params.items() if k in fsec_expected_params}
         filtered_params['num_clusters_list'] = num_clusters_list  # Add the reconstructed list
+        filtered_params['final_n_clusters'] = final_n_clusters
         best_params = filtered_params
 
     # Benchmark the final run
-    final_metrics = benchmark_clustering_algorithm(trial=None, dataset_name=dataset_name, algorithm_class=algorithm_class, params=best_params, hyperparameter_tuning=False, study=study)
+    final_metrics = benchmark_clustering_algorithm(trial=trial, dataset_name=dataset_name, algorithm_class=algorithm_class, params=best_params, hyperparameter_tuning=False, study=study)
     result = {
         'algorithm': algorithm_class.__name__,
         'dataset': dataset_name,
@@ -168,7 +192,7 @@ def main():
         FSECClustering
     ]
 
-    n_trials = 250  # Number of Optuna trials per algorithm per dataset
+    n_trials = 50  # Number of Optuna trials per algorithm per dataset
     results = []
 
     for dataset in datasets:

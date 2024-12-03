@@ -72,8 +72,8 @@ def benchmark_clustering_algorithm(trial, dataset_name, algorithm_class, params=
             algorithm_instance = algorithm_class(params=params)
 
         # Log hyperparameters if in tuning mode
-        if hyperparameter_tuning and trial:
-            logger.log_hyperparams(algorithm_instance.get_params())
+        # if hyperparameter_tuning and trial:
+        logger.log_hyperparams(algorithm_instance.get_params())
 
         # Fit the model and predict labels
         predicted_labels = algorithm_instance.fit_predict(X)
@@ -99,8 +99,8 @@ def benchmark_clustering_algorithm(trial, dataset_name, algorithm_class, params=
         # Report intermediate objective value to Optuna if in tuning mode
         if hyperparameter_tuning and trial:
             trial.report(nmi, step=0)
-            if trial.should_prune():
-                raise optuna.exceptions.TrialPruned()
+            # if trial.should_prune():
+            #     raise optuna.exceptions.TrialPruned()
 
         return nmi  # Optuna will try to maximize NMI
 
