@@ -38,4 +38,4 @@ dev-dependencies = []
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/fsec", "data"]
+packages = ["src/fsec", "data", "clustering_algorithms", "benchmarks"]
