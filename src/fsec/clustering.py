@@ -6,7 +6,6 @@ from .ensemble import generate_base_clusterings, build_bipartite_graph, consensu
 
 class FSEC(BaseEstimator, ClusterMixin):
     def __init__(self, num_anchors=50, K_prime=None, K=5, n_components=2, num_clusters_list=None, final_n_clusters=2, n_jobs=-1):
-        # Initialize parameters
         self.num_anchors = num_anchors
         self.K_prime = K_prime
         self.K = K
@@ -16,7 +15,6 @@ class FSEC(BaseEstimator, ClusterMixin):
         self.n_jobs = n_jobs
 
     def fit(self, X, y=None):
-        # [Implement the steps of your algorithm here]
         # Step 1: Anchor Selection
         anchors, anchor_assignments = BKHK(X, self.num_anchors)
         # Step 2: Compute Anchor Neighbors

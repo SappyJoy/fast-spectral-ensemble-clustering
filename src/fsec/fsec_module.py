@@ -1,9 +1,7 @@
-# src/fsec/fsec_module.py
 import lightning.pytorch as lp
 from src.fsec.clustering import FSEC
 from sklearn.metrics import normalized_mutual_info_score, adjusted_rand_score
 from src.fsec.utils import clustering_accuracy
-import torch
 
 class FSECModule(lp.LightningModule):
     def __init__(self, params):
