@@ -22,6 +22,7 @@ dependencies = [
     "optuna-integration[pytorch_lightning]>=4.1.0",
     "lightning>=2.4.0",
     "kaleido>=0.2.1",
+    "click>=8.1.7",
 ]
 readme = "README.md"
 requires-python = ">= 3.12"

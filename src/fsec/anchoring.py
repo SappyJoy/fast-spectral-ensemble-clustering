@@ -1,7 +1,8 @@
 import numpy as np
-from sklearn.cluster import KMeans, MiniBatchKMeans
+from sklearn.cluster import DBSCAN, KMeans, MiniBatchKMeans
 from sklearn.metrics import pairwise_distances_argmin
 from sklearn.neighbors import NearestNeighbors
+
 
 def recursive_bkmeans(data, num_anchors, current_depth=0, max_depth=None, use_mini_batch=False):
     if max_depth is None:
@@ -58,6 +59,51 @@ def BKHK(data, num_anchors, use_mini_batch=False):
     anchor_assignments = pairwise_distances_argmin(data, anchors)
     
     return anchors, anchor_assignments
+
+
+def DBSCAN_anchor_selection(data, num_anchors, eps=0.5, min_samples=5):
+    """
+    Select anchors using DBSCAN to capture dense data regions.
+
+    Parameters:
+    - data: numpy array of shape (n_samples, n_features)
+    - eps: The maximum distance between two samples for them to be considered as in the same neighborhood.
+    - min_samples: The number of samples in a neighborhood for a point to be considered as a core point.
+    - num_anchors: Desired number of anchors. If None, all core samples are used.
+
+    Returns:
+    - anchors: numpy array of anchor points.
+    - anchor_assignments: array of anchor indices for each sample.
+    """
+    db = DBSCAN(eps=eps, min_samples=min_samples)
+    labels = db.fit_predict(data)
+    
+    # Identify core samples
+    core_samples_mask = np.zeros_like(labels, dtype=bool)
+    core_samples_mask[db.core_sample_indices_] = True
+    
+    # Extract core samples
+    core_samples = data[core_samples_mask]
+    
+    if num_anchors is not None and len(core_samples) > num_anchors:
+        # If more core samples than desired anchors, perform KMeans on core samples
+        kmeans = KMeans(n_clusters=num_anchors, random_state=42)
+        kmeans.fit(core_samples)
+        anchors = kmeans.cluster_centers_
+    else:
+        # Use all core samples as anchors
+        anchors = core_samples
+    
+    # If no core samples found, fallback to BKHK
+    if len(anchors) == 0:
+        print("No core samples found by DBSCAN. Falling back to BKHK for anchor selection.")
+        anchors, anchor_assignments = BKHK(data, num_anchors)
+    else:
+        # Assign each sample to the nearest anchor
+        anchor_assignments = pairwise_distances_argmin(data, anchors)
+    
+    return anchors, anchor_assignments
+
 
 def compute_anchor_neighbors(anchors, K_prime):
     """
