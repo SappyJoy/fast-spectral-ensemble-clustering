@@ -105,14 +105,22 @@ def benchmark_clustering_algorithm(trial, dataset_name, algorithm_class, params=
         return nmi  # Optuna will try to maximize NMI
 
     except Exception as e:
-        # Log the exception details using MLflowLogger
+        # Log the exception details using MLflowLogger as artifacts
         error_message = f"Run '{run_name if 'run_name' in locals() else 'Unknown'}' failed for dataset {dataset_name} using {algorithm_class.__name__} with error: {e}"
         traceback_str = traceback.format_exc()
 
         try:
-            # Attempt to log error within the current MLflow run
-            logger.log_param("error", error_message)
-            logger.log_text(traceback_str, "error_traceback.txt")
+            # Write error_message to a temporary file and log as artifact
+            with open("error_message.txt", "w") as f:
+                f.write(error_message)
+            logger.log_artifact("error_message.txt")
+            os.remove("error_message.txt")
+
+            # Write traceback_str to a temporary file and log as artifact
+            with open("error_traceback.txt", "w") as f:
+                f.write(traceback_str)
+            logger.log_artifact("error_traceback.txt")
+            os.remove("error_traceback.txt")
         except Exception as log_err:
             # If logging fails, print the error
             print(f"Failed to log error to MLflow: {log_err}")
@@ -141,8 +149,14 @@ def save_optuna_plots(study, dataset_name, logger):
             fig1.write_image("optimization_history.png")
 
             # Generate Parameter Importances Plot
-            fig2 = vis.plot_param_importances(study)
-            fig2.write_image("param_importances.png")
+            try:
+                fig2 = vis.plot_param_importances(study)
+                fig2.write_image("param_importances.png")
+            except RuntimeError as re:
+                # Handle specific Optuna errors
+                print(f"RuntimeError while generating parameter importances: {re}")
+                # Skip the rest of the plotting
+                fig2 = None
 
             # Contour Plot (optional)
             fig3 = vis.plot_contour(study)
@@ -154,13 +168,15 @@ def save_optuna_plots(study, dataset_name, logger):
 
             # Log plots as artifacts within the current MLflow run
             logger.experiment.log_artifact(logger.run_id, "optimization_history.png")
-            logger.experiment.log_artifact(logger.run_id, "param_importances.png")
+            if fig2:
+                logger.experiment.log_artifact(logger.run_id, "param_importances.png")
             logger.experiment.log_artifact(logger.run_id, "contour_plot.png")
             logger.experiment.log_artifact(logger.run_id, "parallel_coordinate_plot.png")
 
             # Remove local plot files to keep the workspace clean
             os.remove("optimization_history.png")
-            os.remove("param_importances.png")
+            if fig2:
+                os.remove("param_importances.png")
             os.remove("contour_plot.png")
             os.remove("parallel_coordinate_plot.png")
 
@@ -172,8 +188,8 @@ def save_optuna_plots(study, dataset_name, logger):
         # Handle any exceptions during plot generation or logging
         error_message = f"Failed to generate or log Optuna plots for dataset {dataset_name} with error: {e}"
         traceback_str = traceback.format_exc()
-        mlflow.log_param("plot_error", error_message)
-        mlflow.log_text(traceback_str, "plot_error_traceback.txt")
+        # mlflow.log_param("plot_error", error_message)
+        # mlflow.log_text(traceback_str, "plot_error_traceback.txt")
 
         print(error_message)
         print(traceback_str)
@@ -190,8 +206,14 @@ def save_optuna_plots_final(study, dataset_name, logger):
             fig1.write_image("optimization_history_final.png")
         
             # Generate Parameter Importances Plot
-            fig2 = vis.plot_param_importances(study)
-            fig2.write_image("param_importances_final.png")
+            try:
+                fig2 = vis.plot_param_importances(study)
+                fig2.write_image("param_importances_final.png")
+            except RuntimeError as re:
+                # Handle specific Optuna errors
+                print(f"RuntimeError while generating parameter importances: {re}")
+                # Skip the rest of the plotting
+                fig2 = None
         
             # Contour Plot (optional)
             fig3 = vis.plot_contour(study)
@@ -201,15 +223,17 @@ def save_optuna_plots_final(study, dataset_name, logger):
             fig4 = vis.plot_parallel_coordinate(study)
             fig4.write_image("parallel_coordinate_plot_final.png")
         
-            # Log plots as artifacts
+            # Log plots as artifacts within the current MLflow run
             logger.experiment.log_artifact(logger.run_id, "optimization_history_final.png")
-            logger.experiment.log_artifact(logger.run_id, "param_importances_final.png")
+            if fig2:
+                logger.experiment.log_artifact(logger.run_id, "param_importances_final.png")
             logger.experiment.log_artifact(logger.run_id, "contour_plot_final.png")
             logger.experiment.log_artifact(logger.run_id, "parallel_coordinate_plot_final.png")
         
             # Remove local plot files to keep the workspace clean
             os.remove("optimization_history_final.png")
-            os.remove("param_importances_final.png")
+            if fig2:
+                os.remove("param_importances_final.png")
             os.remove("contour_plot_final.png")
             os.remove("parallel_coordinate_plot_final.png")
         
@@ -221,8 +245,8 @@ def save_optuna_plots_final(study, dataset_name, logger):
         # Handle any exceptions during plot generation or logging
         error_message = f"Failed to generate or log Optuna plots for dataset {dataset_name} with error: {e}"
         traceback_str = traceback.format_exc()
-        mlflow.log_param("plot_error", error_message)
-        mlflow.log_text(traceback_str, "plot_error_traceback_final.txt")
+        # mlflow.log_param("plot_error", error_message)
+        # mlflow.log_text(traceback_str, "plot_error_traceback_final.txt")
 
         print(error_message)
         print(traceback_str)
