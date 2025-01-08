@@ -1,5 +1,7 @@
 from sklearn.base import BaseEstimator, ClusterMixin
 
+from fsec.qr_evd import compute_evd
+
 from .anchoring import BKHK, DBSCAN_anchor_selection, compute_anchor_neighbors
 from .ensemble import (build_bipartite_graph, consensus_clustering,
                        generate_base_clusterings)
@@ -37,11 +39,11 @@ class FSEC(BaseEstimator, ClusterMixin):
     def fit(self, X, y=None):
         # Step 1: Anchor Selection
         if self.anchor_method == 'BKHK':
-            anchors, anchor_assignments = BKHK(
+            self.anchors, anchor_assignments = BKHK(
                 X, self.num_anchors, use_mini_batch=self.use_mini_batch
             )
         elif self.anchor_method == 'DBSCAN':
-            anchors, anchor_assignments = DBSCAN_anchor_selection(
+            self.anchors, anchor_assignments = DBSCAN_anchor_selection(
                 X,
                 self.num_anchors,
                 eps=self.dbscan_eps,
@@ -53,26 +55,26 @@ class FSEC(BaseEstimator, ClusterMixin):
         # Step 2: Compute Anchor Neighbors
         K_prime = self.K_prime or 10 * self.K
         K_prime = min(K_prime, self.num_anchors - 1)
-        anchor_neighbors = compute_anchor_neighbors(anchors, K_prime)
+        anchor_neighbors = compute_anchor_neighbors(self.anchors, K_prime)
 
         # Step 3: Compute Sample-Anchor Similarities
-        W = compute_sample_anchor_similarities(
-            X, anchors, anchor_assignments, anchor_neighbors, self.K
+        self.B, self.W = compute_sample_anchor_similarities(
+            X, self.anchors, anchor_assignments, anchor_neighbors, self.K
         )
 
         # Step 4: Compute SVD
-        U = compute_svd(W, self.n_components)
+        self.U = compute_evd(self.B, self.n_components)
 
         # Step 5: Generate Base Clusterings
-        base_clusterings = generate_base_clusterings(
-            U, self.num_clusters_list, n_jobs=self.n_jobs
+        self.base_clusterings = generate_base_clusterings(
+            self.U, self.num_clusters_list, n_jobs=self.n_jobs
         )
 
         # Step 6: Build Bipartite Graph
-        H = build_bipartite_graph(base_clusterings)
+        self.H = build_bipartite_graph(self.base_clusterings)
 
         # Step 7: Consensus Clustering
-        self.labels_ = consensus_clustering(H, n_clusters=self.final_n_clusters)
+        self.labels_ = consensus_clustering(self.H, n_clusters=self.final_n_clusters)
 
         return self
 
