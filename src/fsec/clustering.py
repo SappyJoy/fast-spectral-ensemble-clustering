@@ -3,7 +3,7 @@ import dask.array as da
 
 from fsec.qr_evd_mr import compute_evd_map_reduce
 
-from .anchoring import BKHK_dask, compute_anchor_neighbors
+from .anchoring import BKHK_dask, compute_anchor_neighbors_dask
 from .ensemble import (build_bipartite_graph, consensus_clustering,
                        generate_base_clusterings)
 from .similarity import compute_sample_anchor_similarities
@@ -48,7 +48,7 @@ class FSEC(BaseEstimator, ClusterMixin):
         # Step 2: Compute Anchor Neighbors
         K_prime = self.K_prime or 10 * self.K
         K_prime = min(K_prime, self.num_anchors - 1)
-        anchor_neighbors = compute_anchor_neighbors(self.anchors, K_prime)
+        anchor_neighbors = compute_anchor_neighbors_dask(anchors, K_prime)
 
         # Step 3: Compute Sample-Anchor Similarities
         self.B = compute_sample_anchor_similarities(

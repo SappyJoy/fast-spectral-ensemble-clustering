@@ -1,6 +1,7 @@
 import dask.array as da
 import numpy as np
 from dask_ml.cluster import KMeans
+from dask_ml.metrics import pairwise_distances
 from sklearn.cluster import DBSCAN
 from sklearn.metrics import pairwise_distances_argmin
 from sklearn.neighbors import NearestNeighbors
@@ -114,3 +115,30 @@ def compute_anchor_neighbors(anchors, K_prime):
     distances, indices = nbrs.kneighbors(anchors)
     anchor_neighbors = indices[:, 1:]  # Exclude self
     return anchor_neighbors
+
+def compute_anchor_neighbors_dask(anchors, K_prime):
+    if not isinstance(anchors, da.Array):
+        anchors_dask = da.from_array(anchors, chunks=(anchors.shape[0], anchors.shape[1]))
+    else:
+        anchors_dask = anchors
+    p = anchors_dask.shape[0]
+    K_prime = min(K_prime, p - 1)
+
+    anchors_np = anchors_dask.compute()
+
+    dist_matrix = pairwise_distances(anchors_dask, anchors_np, metric='euclidean')
+    # sorted_indices = da.argsort(dist_matrix, axis=1)
+
+    # Rechunk so that each row is contiguous in memory, which is helpful for row-wise argsort.
+    # This assumes that you want to sort along axis=1 (row-wise).
+    dist_matrix = dist_matrix.rechunk({1: -1})
+
+    # Apply np.argsort to each row block using map_blocks.
+    # We use dtype=int because argsort returns integer indices.
+    sorted_indices = dist_matrix.map_blocks(np.argsort, axis=1, dtype=int)
+
+    # skip the diagonal
+    anchor_neighbors_dask = sorted_indices[:, 1 : K_prime + 1]
+    anchor_neighbors = anchor_neighbors_dask.compute()  # shape: (p, K_prime)
+    return anchor_neighbors
+
