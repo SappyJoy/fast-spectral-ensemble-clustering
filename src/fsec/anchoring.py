@@ -1,65 +1,55 @@
+import dask.array as da
 import numpy as np
-from sklearn.cluster import DBSCAN, KMeans, MiniBatchKMeans
+from dask_ml.cluster import KMeans
+from sklearn.cluster import DBSCAN
 from sklearn.metrics import pairwise_distances_argmin
 from sklearn.neighbors import NearestNeighbors
 
 
-def recursive_bkmeans(data, num_anchors, current_depth=0, max_depth=None, use_mini_batch=False):
+def recursive_bkmeans_dask(data, num_anchors, current_depth=0, max_depth=None):
     if max_depth is None:
         max_depth = int(np.ceil(np.log2(num_anchors)))
-    
-    # Base cases
-    if num_anchors == 1 or len(data) <= 1 or current_depth >= max_depth:
-        if len(data) == 0:
+
+    if num_anchors == 1 or data.shape[0] <= 1 or current_depth >= max_depth:
+        if data.shape[0] == 0:
             return []
-        else:
-            return [np.mean(data, axis=0)]
-    
-    # Check if data has at least 2 samples
-    if len(data) < 2:
-        return [np.mean(data, axis=0)]
-    
-    # Choose clustering method
-    if use_mini_batch:
-        kmeans = MiniBatchKMeans(n_clusters=2, random_state=42, batch_size=1000)
-    else:
-        kmeans = KMeans(n_clusters=2, random_state=42)
-    
-    labels = kmeans.fit_predict(data)
-    left = data[labels == 0]
-    right = data[labels == 1]
-    
-    # Allocate anchors to each split
+        return [data.mean(axis=0)]
+
+    clusterer = KMeans(n_clusters=2, random_state=42)
+    clusterer.fit(data)  # OK as data has known chunk sizes
+    labels = clusterer.predict(data)
+
+    # Must compute labels to know how big left/right will be
+    labels_np = labels.compute()
+    data_np = data.compute()
+
+    # Split in memory
+    left_np = data_np[labels_np == 0]
+    right_np = data_np[labels_np == 1]
+
+    # Convert back to dask arrays if you want
+    left_da = da.from_array(left_np, chunks=(left_np.shape[0], data_np.shape[1]))
+    right_da = da.from_array(right_np, chunks=(right_np.shape[0], data_np.shape[1]))
+
     num_left = num_anchors // 2
     num_right = num_anchors - num_left
-    
-    # Handle edge cases where splits may have insufficient data
-    anchors_left = recursive_bkmeans(left, num_left, current_depth + 1, max_depth, use_mini_batch)
-    anchors_right = recursive_bkmeans(right, num_right, current_depth + 1, max_depth, use_mini_batch)
-    
+
+    anchors_left = recursive_bkmeans_dask(left_da, num_left, current_depth + 1, max_depth)
+    anchors_right = recursive_bkmeans_dask(right_da, num_right, current_depth + 1, max_depth)
+
     return anchors_left + anchors_right
 
-def BKHK(data, num_anchors, use_mini_batch=False):
-    """
-    Balanced K-means-Based Hierarchical K-means (BKHK) implementation.
+def BKHK_dask(data, num_anchors):
+    anchors_list = recursive_bkmeans_dask(data, num_anchors)
+    # anchors_list is a Python list of Dask arrays
+    anchors_np = [a.compute() for a in anchors_list]
+    anchors_np = anchors_np[:num_anchors]
+    anchors = np.stack(anchors_np, axis=0)
 
-    Parameters:
-    - data: numpy array of shape (n_samples, n_features)
-    - num_anchors: desired number of anchors
-    - use_mini_batch: whether to use MiniBatchKMeans for large datasets
-
-    Returns:
-    - anchors: array of anchor points of shape (num_anchors, n_features)
-    - anchor_assignments: array of anchor indices for each sample
-    """
-    anchors = recursive_bkmeans(data, num_anchors, use_mini_batch=use_mini_batch)
-    anchors = np.array(anchors[:num_anchors])
-    
-    # Assign each sample to the nearest anchor
-    anchor_assignments = pairwise_distances_argmin(data, anchors)
-    
-    return anchors, anchor_assignments
-
+    # Final assignment
+    data_np = data.compute()
+    assignments = pairwise_distances_argmin(data_np, anchors)
+    return anchors, assignments
 
 def DBSCAN_anchor_selection(data, num_anchors, eps=0.5, min_samples=5):
     """

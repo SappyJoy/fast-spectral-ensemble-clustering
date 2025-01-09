@@ -1,8 +1,9 @@
 from sklearn.base import BaseEstimator, ClusterMixin
+import dask.array as da
 
 from fsec.qr_evd_mr import compute_evd_map_reduce
 
-from .anchoring import BKHK, DBSCAN_anchor_selection, compute_anchor_neighbors
+from .anchoring import BKHK_dask, compute_anchor_neighbors
 from .ensemble import (build_bipartite_graph, consensus_clustering,
                        generate_base_clusterings)
 from .similarity import compute_sample_anchor_similarities
@@ -38,19 +39,11 @@ class FSEC(BaseEstimator, ClusterMixin):
 
     def fit(self, X, y=None):
         # Step 1: Anchor Selection
-        if self.anchor_method == 'BKHK':
-            self.anchors, anchor_assignments = BKHK(
-                X, self.num_anchors, use_mini_batch=self.use_mini_batch
-            )
-        elif self.anchor_method == 'DBSCAN':
-            self.anchors, anchor_assignments = DBSCAN_anchor_selection(
-                X,
-                self.num_anchors,
-                eps=self.dbscan_eps,
-                min_samples=self.dbscan_min_samples
-            )
-        else:
-            raise ValueError(f"Unknown anchor_method: {self.anchor_method}")
+        if not isinstance(X, da.Array):
+            X = da.from_array(X, chunks=(1000, X.shape[1]))
+
+        anchors, anchor_assignments = BKHK_dask(X, self.num_anchors)
+        X = X.compute()
 
         # Step 2: Compute Anchor Neighbors
         K_prime = self.K_prime or 10 * self.K
