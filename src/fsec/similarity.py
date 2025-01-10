@@ -1,5 +1,8 @@
-from scipy.sparse import lil_matrix
+import dask.array as da
 import numpy as np
+from dask import compute, delayed
+from scipy.sparse import coo_matrix, csr_matrix, lil_matrix, vstack
+
 
 def compute_sample_anchor_similarities(data, anchors, anchor_assignments, anchor_neighbors, K):
     """
@@ -68,3 +71,146 @@ def compute_sample_anchor_similarities(data, anchors, anchor_assignments, anchor
     
     return W
 
+
+
+def _compute_similarities_chunk(
+    data_chunk, 
+    start_idx, 
+    anchor_assignments_chunk, 
+    anchors, 
+    anchor_neighbors,
+    K
+):
+    """
+    Process a single chunk of the data to compute partial W.
+
+    Parameters
+    ----------
+    data_chunk : np.ndarray of shape (chunk_size, n_features)
+        The portion of data corresponding to rows [start_idx : start_idx + chunk_size].
+    start_idx : int
+        The global row offset (so we know which row in the full W each sample belongs to).
+    anchor_assignments_chunk : np.ndarray of shape (chunk_size,)
+        The assigned anchor for each sample in this chunk.
+    anchors : np.ndarray of shape (p, n_features)
+    anchor_neighbors : np.ndarray of shape (p, K_prime)
+    K : int
+
+    Returns
+    -------
+    rows, cols, vals : np.ndarray, np.ndarray, np.ndarray
+        Triplets so that we can build a sparse matrix. 
+        rows[r], cols[r], vals[r] define one nonzero W[row, col] = val.
+    """
+    chunk_size = data_chunk.shape[0]
+    p = anchors.shape[0]
+    epsilon = 1e-8
+
+    # We'll store triplets in local lists (then convert to arrays).
+    row_coords = []
+    col_coords = []
+    values = []
+
+    for i in range(chunk_size):
+        global_i = start_idx + i  # The actual row in the full dataset
+
+        # Assigned anchor
+        anchor_idx = anchor_assignments_chunk[i]
+
+        # Candidate anchors (assigned anchor + neighbors)
+        candidate_anchor_indices = anchor_neighbors[anchor_idx]
+        candidate_anchor_indices = np.concatenate(([anchor_idx], candidate_anchor_indices))
+
+        # Distances
+        candidate_anchors = anchors[candidate_anchor_indices]
+        distances = np.linalg.norm(data_chunk[i] - candidate_anchors, axis=1)
+
+        # Possibly retain only top K + 1
+        if len(distances) > K + 1:
+            sort_idx = np.argsort(distances)
+            distances = distances[sort_idx][:K + 1]
+            candidate_anchor_indices = candidate_anchor_indices[sort_idx][:K + 1]
+
+        # Now pick top K from those K+1
+        sorted_idx = np.argsort(distances)
+        K_nearest_idx = sorted_idx[:K]
+        K_anchors = candidate_anchor_indices[K_nearest_idx]
+        K_dists = distances[K_nearest_idx]
+
+        # d(i, K+1)
+        if len(distances) > K:
+            d_i_K_plus_1 = distances[sorted_idx[K]]
+        else:
+            # if fewer than K+1 are available
+            d_i_K_plus_1 = distances[sorted_idx[-1]] + epsilon
+
+        sum_d = np.sum(K_dists)
+        denom = K * d_i_K_plus_1 - sum_d
+        if denom <= epsilon:
+            denom = epsilon
+
+        # Equation (3) in your code
+        similarities = (d_i_K_plus_1 - K_dists) / denom
+        similarities = np.maximum(similarities, 0)
+        similarities /= (similarities.sum() + epsilon)  # normalize
+
+        for j, sim in zip(K_anchors, similarities):
+            row_coords.append(global_i)
+            col_coords.append(j)
+            values.append(sim)
+
+    return (np.array(row_coords), np.array(col_coords), np.array(values))
+
+
+def compute_sample_anchor_similarities_dask(data, anchors, anchor_assignments, anchor_neighbors, K):
+    # Ensure data and assignments are dask arrays with row-wise chunks
+    if not isinstance(data, da.Array):
+        data = da.from_array(data, chunks=(1000, data.shape[1]))
+    if not isinstance(anchor_assignments, da.Array):
+        anchor_assignments = da.from_array(anchor_assignments, chunks=(1000,))
+        
+    # Convert data and assignments to lists of delayed chunks
+    data_delayed_chunks = data.to_delayed().ravel()  
+    assignments_delayed_chunks = anchor_assignments.to_delayed().ravel()
+    
+    # Compute chunk sizes and starting indices
+    chunk_sizes = data.chunks[0]
+    start_indices = np.cumsum((0,) + chunk_sizes[:-1])
+    
+    tasks = []
+    for i, (d_chunk_delayed, a_chunk_delayed) in enumerate(zip(data_delayed_chunks, assignments_delayed_chunks)):
+        start_idx = int(start_indices[i])
+        # Create a delayed task for each chunk
+        task = delayed(_compute_similarities_chunk)(
+            d_chunk_delayed,
+            start_idx,
+            a_chunk_delayed,
+            anchors,
+            anchor_neighbors,
+            K
+        )
+        tasks.append(task)
+
+    # Execute all tasks in parallel and gather results
+    results = compute(*tasks)
+    
+    # Initialize lists to collect triplets from each chunk
+    row_coords_list = []
+    col_coords_list = []
+    vals_list = []
+
+    for rows_arr, cols_arr, vals_arr in results:
+        row_coords_list.append(rows_arr)
+        col_coords_list.append(cols_arr)
+        vals_list.append(vals_arr)
+
+    # Concatenate results from all chunks
+    row_coords = np.concatenate(row_coords_list) if row_coords_list else np.array([], dtype=int)
+    col_coords = np.concatenate(col_coords_list) if col_coords_list else np.array([], dtype=int)
+    vals = np.concatenate(vals_list) if vals_list else np.array([], dtype=float)
+
+    # Construct the final sparse matrix
+    n_samples = data.shape[0]
+    p = anchors.shape[0]
+    W_coo = coo_matrix((vals, (row_coords, col_coords)), shape=(n_samples, p))
+    return W_coo.tocsr()

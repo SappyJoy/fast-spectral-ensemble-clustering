@@ -6,7 +6,7 @@ from fsec.qr_evd_mr import compute_evd_map_reduce
 from .anchoring import BKHK_dask, compute_anchor_neighbors_dask
 from .ensemble import (build_bipartite_graph, consensus_clustering,
                        generate_base_clusterings)
-from .similarity import compute_sample_anchor_similarities
+from .similarity import compute_sample_anchor_similarities_dask
 from .spectral import compute_svd
 
 
@@ -43,16 +43,18 @@ class FSEC(BaseEstimator, ClusterMixin):
             X = da.from_array(X, chunks=(1000, X.shape[1]))
 
         anchors, anchor_assignments = BKHK_dask(X, self.num_anchors)
-        X = X.compute()
+        # X = X.compute()
 
         # Step 2: Compute Anchor Neighbors
         K_prime = self.K_prime or 10 * self.K
         K_prime = min(K_prime, self.num_anchors - 1)
         anchor_neighbors = compute_anchor_neighbors_dask(anchors, K_prime)
 
+        anchor_assignments_dask = da.from_array(anchor_assignments, chunks=(1000,))
+
         # Step 3: Compute Sample-Anchor Similarities
-        self.B = compute_sample_anchor_similarities(
-            X, self.anchors, anchor_assignments, anchor_neighbors, self.K
+        W = compute_sample_anchor_similarities_dask(
+            X, anchors, anchor_assignments_dask, anchor_neighbors, self.K
         )
 
         # Step 4: Compute SVD
