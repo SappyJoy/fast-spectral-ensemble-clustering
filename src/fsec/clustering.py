@@ -5,7 +5,7 @@ from fsec.qr_evd_mr import compute_evd_map_reduce
 
 from .anchoring import BKHK_dask, compute_anchor_neighbors_dask
 from .ensemble import (build_bipartite_graph, consensus_clustering,
-                       generate_base_clusterings)
+                       generate_base_clusterings_dask)
 from .similarity import compute_sample_anchor_similarities_dask
 from .spectral import compute_svd
 
@@ -60,9 +60,15 @@ class FSEC(BaseEstimator, ClusterMixin):
         # Step 4: Compute SVD
         self.U = compute_evd_map_reduce(self.B, self.n_components)
 
+        if not isinstance(U, da.Array):
+            U_dask = da.from_array(U, chunks=(1000, U.shape[1]))
+        else:
+            U_dask = U
+
+
         # Step 5: Generate Base Clusterings
-        self.base_clusterings = generate_base_clusterings(
-            self.U, self.num_clusters_list, n_jobs=self.n_jobs
+        base_clusterings = generate_base_clusterings_dask(
+            U_dask, self.num_clusters_list, n_init=10
         )
 
         # Step 6: Build Bipartite Graph
