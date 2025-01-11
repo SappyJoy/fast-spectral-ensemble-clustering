@@ -105,27 +105,22 @@ def qr_decomposition_simulated_map_reduce(A, num_partitions=2):
 
     for i in range(n):
         ai = A[:, i]
-
-        # Step 1: Orthogonalize ai
-        projections = []
         for j in range(i):
             qj = Q[:, j]
             partial_projections = [
-            map_compute_projections(qj_part, ai_part)
-            for qj_part, ai_part in zip(np.array_split(qj, num_partitions), np.array_split(ai, num_partitions))
+                map_compute_projections(qj_part, ai_part)
+                for qj_part, ai_part in zip(np.array_split(qj, num_partitions), np.array_split(ai, num_partitions))
             ]
             proj = reduce_aggregate_projections(partial_projections)
-            projections.append((j, proj))
-
+            R[j, i] = proj  # Store the projection in R
+            # You can optionally keep a list of projections if needed for subsequent steps.
+        # After collecting all R[j,i] for j < i, proceed with orthogonalization:
         qi = ai.copy()
-        for j, proj in projections:
-            qi -= proj * Q[:, j]
-
-        # Step 2: Normalize qi
+        for j in range(i):
+            qi -= R[j, i] * Q[:, j]
         partial_norms = [map_compute_norm_part(qi_part) for qi_part in np.array_split(qi, num_partitions)]
         norm = reduce_norm(partial_norms)
         qi /= norm
-
         R[i, i] = norm
         Q[:, i] = qi
 
