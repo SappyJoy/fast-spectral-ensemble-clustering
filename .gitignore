@@ -18,3 +18,4 @@ mlartifacts/
 optimization_history.png
 param_importances.png
 results.json
+lightning_logs
