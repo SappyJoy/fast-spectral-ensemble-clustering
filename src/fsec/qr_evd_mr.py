@@ -54,7 +54,7 @@ def map_matrix_multiply(R_part, Q):
         raise ValueError("NaN encountered in matrix multiplication inputs.")
     return R_part @ Q
 
-def reduce_matrix_sum(partial_results):
+def reduce_matrix_multiply(partial_results):
     """
     Aggregate partial results of matrix multiplication row-wise.
     :param partial_results: List of partial products (shape: n_part x n).
@@ -138,17 +138,12 @@ def qr_eigenvalues_map_reduce(A, max_iterations=1000, tolerance=1e-6, num_partit
     Ak = A.copy()
     eigenvectors = np.eye(A.shape[0])
 
-    for h in range(max_iterations):
+    for _ in range(max_iterations):
         Q, R = qr_decomposition_simulated_map_reduce(Ak, num_partitions)
-        # Check orthogonality of Q
-        for i in range(Q.shape[1]):
-            for j in range(i + 1, Q.shape[1]):
-                dot_product = np.dot(Q[:, i], Q[:, j])
-                if abs(dot_product) > 1e-6:  # Small tolerance for numerical error
-                    print(f"step {h}: Warning: Q[:, {i}] and Q[:, {j}] are not orthogonal. Dot product: {dot_product}")
         partial_results = [map_matrix_multiply(R_part, Q) for R_part in np.array_split(R, num_partitions)]
-        Ak = reduce_matrix_sum(partial_results)
-        eigenvectors = eigenvectors @ Q
+        Ak = reduce_matrix_multiply(partial_results)
+        eigenvectors_parts = [map_matrix_multiply(part, Q) for part in np.array_split(eigenvectors, num_partitions)]
+        eigenvectors = reduce_matrix_multiply(eigenvectors_parts)
 
         if np.linalg.norm(np.tril(Ak, -1)) < tolerance:
             break
@@ -171,7 +166,6 @@ def compute_evd_map_reduce(Z, k, max_iterations=1000, tolerance=1e-6, num_partit
     :return: U_k (top-k eigenvectors of W, shape: N x k).
     """
     Z = Z.toarray()
-    # Z = Z / np.linalg.norm(Z, axis=1, keepdims=True)
     ZTZ_parts = [map_compute_ZTZ_part(part) for part in np.array_split(Z, num_partitions)]
     ZTZ = reduce_sum_ZTZ(ZTZ_parts)
 

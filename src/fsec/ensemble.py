@@ -5,6 +5,8 @@ from scipy.sparse import coo_matrix, diags
 from scipy.sparse.linalg import eigsh
 from scipy.linalg import eigh
 
+from fsec.qr_evd_mr import compute_evd_map_reduce, qr_eigenvalues_map_reduce
+
 def generate_base_clusterings(U, num_clusters_list, n_init=10, n_jobs=-1):
     """
     Generates multiple base clusterings by running k-means with different numbers of clusters.
@@ -77,25 +79,8 @@ def consensus_clustering(H, n_clusters):
     D_r_inv = diags(1.0 / H.sum(axis=1).A.flatten())
     L_tilde = H.T.dot(D_r_inv).dot(H)
     
-    # Compute the eigenvectors
     n_components = n_clusters
-    N = L_tilde.shape[0]
-    
-    if n_components >= N:
-        # When k >= N, use dense eigenvalue solver
-        L_tilde_dense = L_tilde.toarray()
-        vals, vecs = eigh(L_tilde_dense)
-        
-        # Since eigh returns eigenvalues in ascending order, reverse them
-        idx = np.argsort(-vals)
-        vals = vals[idx]
-        vecs = vecs[:, idx]
-        
-        # Select the top n_components eigenvectors
-        vecs = vecs[:, :n_components]
-    else:
-        # Use eigsh for sparse matrices
-        vals, vecs = eigsh(L_tilde, k=n_components, which='LA')
+    vecs = compute_evd_map_reduce(L_tilde, n_components)
     
     # Map back to the original samples
     f = H.dot(D_c_inv).dot(vecs)
