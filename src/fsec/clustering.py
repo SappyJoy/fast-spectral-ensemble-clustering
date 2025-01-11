@@ -1,6 +1,6 @@
 from sklearn.base import BaseEstimator, ClusterMixin
 
-from fsec.qr_evd import compute_evd
+from fsec.qr_evd_mr import compute_evd_map_reduce
 
 from .anchoring import BKHK, DBSCAN_anchor_selection, compute_anchor_neighbors
 from .ensemble import (build_bipartite_graph, consensus_clustering,
@@ -58,12 +58,12 @@ class FSEC(BaseEstimator, ClusterMixin):
         anchor_neighbors = compute_anchor_neighbors(self.anchors, K_prime)
 
         # Step 3: Compute Sample-Anchor Similarities
-        self.B, self.W = compute_sample_anchor_similarities(
+        self.B = compute_sample_anchor_similarities(
             X, self.anchors, anchor_assignments, anchor_neighbors, self.K
         )
 
         # Step 4: Compute SVD
-        self.U = compute_evd(self.B, self.n_components)
+        self.U = compute_evd_map_reduce(self.B, self.n_components)
 
         # Step 5: Generate Base Clusterings
         self.base_clusterings = generate_base_clusterings(

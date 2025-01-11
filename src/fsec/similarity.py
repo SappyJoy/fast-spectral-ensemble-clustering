@@ -66,5 +66,5 @@ def compute_sample_anchor_similarities(data, anchors, anchor_assignments, anchor
         # Assign to W
         W[i, K_anchor_indices] = similarities
     
-    return W, distances
+    return W
 
