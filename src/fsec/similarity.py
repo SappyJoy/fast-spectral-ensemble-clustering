@@ -82,66 +82,50 @@ def _compute_similarities_chunk(
     K
 ):
     """
-    Process a single chunk of the data to compute partial W.
+    Process a single chunk of the data to compute partial W and store full distances.
 
     Parameters
     ----------
-    data_chunk : np.ndarray of shape (chunk_size, n_features)
-        The portion of data corresponding to rows [start_idx : start_idx + chunk_size].
-    start_idx : int
-        The global row offset (so we know which row in the full W each sample belongs to).
-    anchor_assignments_chunk : np.ndarray of shape (chunk_size,)
-        The assigned anchor for each sample in this chunk.
-    anchors : np.ndarray of shape (p, n_features)
-    anchor_neighbors : np.ndarray of shape (p, K_prime)
-    K : int
+    ...  # (same as before)
 
     Returns
     -------
-    rows, cols, vals : np.ndarray, np.ndarray, np.ndarray
-        Triplets so that we can build a sparse matrix. 
-        rows[r], cols[r], vals[r] define one nonzero W[row, col] = val.
+    rows, cols, vals, distances : np.ndarray, np.ndarray, np.ndarray, np.ndarray
+        Triplets for sparse matrix and full distances for each sample.
     """
     chunk_size = data_chunk.shape[0]
-    p = anchors.shape[0]
     epsilon = 1e-8
 
-    # We'll store triplets in local lists (then convert to arrays).
     row_coords = []
     col_coords = []
     values = []
+    distances_list = []
 
     for i in range(chunk_size):
-        global_i = start_idx + i  # The actual row in the full dataset
+        global_i = start_idx + i
 
-        # Assigned anchor
-        anchor_idx = anchor_assignments_chunk[i]
-
-        # Candidate anchors (assigned anchor + neighbors)
-        candidate_anchor_indices = anchor_neighbors[anchor_idx]
-        candidate_anchor_indices = np.concatenate(([anchor_idx], candidate_anchor_indices))
-
-        # Distances
+        # Instead of using neighbor-based selection, use all anchors
+        candidate_anchor_indices = np.arange(anchors.shape[0])
         candidate_anchors = anchors[candidate_anchor_indices]
+        
+        # Compute distances to all anchors for the full distance vector
         distances = np.linalg.norm(data_chunk[i] - candidate_anchors, axis=1)
+        full_distances = distances.copy()  # Save the full distances before any truncation
 
-        # Possibly retain only top K + 1
+        # Truncate distances for similarity computations if necessary
         if len(distances) > K + 1:
             sort_idx = np.argsort(distances)
             distances = distances[sort_idx][:K + 1]
             candidate_anchor_indices = candidate_anchor_indices[sort_idx][:K + 1]
 
-        # Now pick top K from those K+1
         sorted_idx = np.argsort(distances)
         K_nearest_idx = sorted_idx[:K]
         K_anchors = candidate_anchor_indices[K_nearest_idx]
         K_dists = distances[K_nearest_idx]
 
-        # d(i, K+1)
         if len(distances) > K:
             d_i_K_plus_1 = distances[sorted_idx[K]]
         else:
-            # if fewer than K+1 are available
             d_i_K_plus_1 = distances[sorted_idx[-1]] + epsilon
 
         sum_d = np.sum(K_dists)
@@ -149,17 +133,22 @@ def _compute_similarities_chunk(
         if denom <= epsilon:
             denom = epsilon
 
-        # Equation (3) in your code
         similarities = (d_i_K_plus_1 - K_dists) / denom
         similarities = np.maximum(similarities, 0)
-        similarities /= (similarities.sum() + epsilon)  # normalize
+        similarities /= (similarities.sum() + epsilon)
 
         for j, sim in zip(K_anchors, similarities):
             row_coords.append(global_i)
             col_coords.append(j)
             values.append(sim)
+        
+        # Append the full (untruncated) distances for this sample
+        distances_list.append(full_distances)
 
-    return (np.array(row_coords), np.array(col_coords), np.array(values))
+    # Convert collected distances to a 2D array: shape (chunk_size, num_anchors)
+    distances_array = np.array(distances_list)
+
+    return (np.array(row_coords), np.array(col_coords), np.array(values), distances_array)
 
 
 def compute_sample_anchor_similarities_dask(data, anchors, anchor_assignments, anchor_neighbors, K):
@@ -198,19 +187,23 @@ def compute_sample_anchor_similarities_dask(data, anchors, anchor_assignments, a
     row_coords_list = []
     col_coords_list = []
     vals_list = []
+    distances_list = []
 
-    for rows_arr, cols_arr, vals_arr in results:
+    for rows_arr, cols_arr, vals_arr, distances_arr in results:
         row_coords_list.append(rows_arr)
         col_coords_list.append(cols_arr)
         vals_list.append(vals_arr)
+        distances_list.append(distances_arr)
 
     # Concatenate results from all chunks
     row_coords = np.concatenate(row_coords_list) if row_coords_list else np.array([], dtype=int)
     col_coords = np.concatenate(col_coords_list) if col_coords_list else np.array([], dtype=int)
     vals = np.concatenate(vals_list) if vals_list else np.array([], dtype=float)
+    distances = np.concatenate(distances_list) if distances_list else np.array([], dtype=float)
 
     # Construct the final sparse matrix
     n_samples = data.shape[0]
     p = anchors.shape[0]
     W_coo = coo_matrix((vals, (row_coords, col_coords)), shape=(n_samples, p))
-    return W_coo.tocsr()
+
+    return W_coo.tocsr(), distances

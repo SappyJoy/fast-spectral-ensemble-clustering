@@ -165,7 +165,7 @@ def compute_evd_map_reduce(Z, k, max_iterations=1000, tolerance=1e-6, num_partit
     :param num_partitions: Number of row-wise partitions.
     :return: U_k (top-k eigenvectors of W, shape: N x k).
     """
-    Z = Z.toarray()
+    # Z = Z.toarray()
     ZTZ_parts = [map_compute_ZTZ_part(part) for part in np.array_split(Z, num_partitions)]
     ZTZ = reduce_sum_ZTZ(ZTZ_parts)
 

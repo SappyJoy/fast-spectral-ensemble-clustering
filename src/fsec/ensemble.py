@@ -120,6 +120,7 @@ def consensus_clustering(H, n_clusters):
     L_tilde = H.T.dot(D_r_inv).dot(H)
     
     n_components = n_clusters
+    L_tilde = L_tilde.toarray()
     vecs = compute_evd_map_reduce(L_tilde, n_components)
     
     # Map back to the original samples

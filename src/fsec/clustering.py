@@ -53,12 +53,12 @@ class FSEC(BaseEstimator, ClusterMixin):
         anchor_assignments_dask = da.from_array(anchor_assignments, chunks=(1000,))
 
         # Step 3: Compute Sample-Anchor Similarities
-        W = compute_sample_anchor_similarities_dask(
+        W, B = compute_sample_anchor_similarities_dask(
             X, anchors, anchor_assignments_dask, anchor_neighbors, self.K
         )
 
         # Step 4: Compute SVD
-        self.U = compute_evd_map_reduce(self.B, self.n_components)
+        U = compute_evd_map_reduce(B, self.n_components)
 
         if not isinstance(U, da.Array):
             U_dask = da.from_array(U, chunks=(1000, U.shape[1]))
@@ -72,10 +72,10 @@ class FSEC(BaseEstimator, ClusterMixin):
         )
 
         # Step 6: Build Bipartite Graph
-        self.H = build_bipartite_graph(self.base_clusterings)
+        H = build_bipartite_graph(base_clusterings)
 
         # Step 7: Consensus Clustering
-        self.labels_ = consensus_clustering(self.H, n_clusters=self.final_n_clusters)
+        self.labels_ = consensus_clustering(H, n_clusters=self.final_n_clusters)
 
         return self
 
